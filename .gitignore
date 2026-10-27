@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.sqlite
+*.sqlite3
+*.db
+*.csv
+*.log
+*.deb
+config.json
+*.env
+.env*
+private-build/
+private-ipad-snapshot/
+assembly-private/
