@@ -15,6 +15,10 @@ Unofficial Python prototype for reading **normal LINE** messages from a local SQ
 - [docs/SECURITY_AND_RIGHTS.md](docs/SECURITY_AND_RIGHTS.md) — privacy and redistribution blockers
 - [docs/GUI_OPTIONS.md](docs/GUI_OPTIONS.md) — phase-2 GUI comparison, not an implemented GUI
 - [docs/WORK_HANDOFF.md](docs/WORK_HANDOFF.md) — handoff for continuing development in ChatGPT Work
+- [docs/RC3_CHAT_REVIEW.md](docs/RC3_CHAT_REVIEW.md) — limited code review and confirmed follow-up fixes
+- [docs/BETA_RELEASE_CHECKLIST.md](docs/BETA_RELEASE_CHECKLIST.md) — mandatory private-beta acceptance gates
+- [docs/GAS_RECEIVER_DESIGN.md](docs/GAS_RECEIVER_DESIGN.md) — separate backend receiver and durable dedupe design
+- [docs/LIMITED_SOURCE_SCAN.md](docs/LIMITED_SOURCE_SCAN.md) — scoped secret-pattern source scan and limitations
 - [normal-only-rc1/README_TESTING.txt](normal-only-rc1/README_TESTING.txt) — historical RC1 test package instructions; **read caveats below first**
 
 ## CLI commands
