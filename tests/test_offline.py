@@ -130,6 +130,18 @@ print('PASS: actual resolver against synthetic SQLite')
         )
         self.assertFalse(config["enabled"])
 
+    def test_fractional_timestamp_does_not_pass_doctor_or_enable(self):
+        self.call("init")
+        self.configure()
+        with closing(sqlite3.connect(self.db)) as c:
+            c.execute("UPDATE ZMESSAGE SET ZTIMESTAMP=? WHERE Z_PK=101",
+                      (1735689600000.5,))
+            c.commit()
+        self.call("doctor", success=False)
+        self.call("enable", success=False)
+        config = json.loads((self.root / "config" / "config.json").read_text())
+        self.assertFalse(config["enabled"])
+
     def test_oversized_message_fails_closed(self):
         p = subprocess.run(
             [sys.executable, "-c",
