@@ -1,3 +1,24 @@
+IMPORTANT: HISTORICAL / OUTDATED RC1 DOCUMENTATION
+
+This file describes the *original private RC1 package*, NOT the current
+GitHub review branch. It is kept for historical context only.
+
+Do NOT install the old .deb based on this text. GitHub source now includes
+changes to CLI setup, schema checking, private cache location and fail-closed
+name enrichment that are NOT included in the older .deb.
+
+For current status and testing caveats read:
+  ../README.md
+  ../docs/WORK_HANDOFF.md
+
+The old private .deb was built on Windows, with no other-device iOS tests.
+Its byte-level integrity tests did NOT establish functional compatibility.
+Do not upload real LINE databases, messages, identifiers or credentials.
+Review code redistribution rights and service terms before any distribution.
+
+Original document (historical only)
+===================================
+
 LINE AUTO SYNC - ROOTLESS TEST CANDIDATE RC1
 
 STATUS

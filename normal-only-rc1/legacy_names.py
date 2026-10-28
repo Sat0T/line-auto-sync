@@ -17,7 +17,7 @@ import presentation
 import transport
 
 ROOT = _las_state_dir
-STAGE = Path(__file__).resolve().parent
+STAGE = ROOT
 APP_ID = 0x4C4E4331
 _session = None
 _fallback = False
@@ -47,7 +47,7 @@ class Session:
             if str(Path((ROOT / 'dbpath').read_text().strip()).resolve()) != conf['line_db']:
                 raise ValueError('database_generation_changed')
             self.source = conf['source_id']
-            self.resolver = Resolver(conf['line_db'], conf['group_db'], self.source, conf['timestamp_unit'])
+            self.resolver = Resolver(conf['line_db'], conf.get('group_db'), self.source, conf['timestamp_unit'])
             path = STAGE / 'named-cache.sqlite'
             if path.exists() and path.stat().st_size:
                 check = sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True)
@@ -104,9 +104,8 @@ def enrich_legacy(raw):
         try:
             _session = Session()
         except Exception:
-            _fallback = True
-            print('NAME_LOOKUP_UNAVAILABLE_USING_EXISTING_FORMAT')
-            return raw
+            # Do not silently send raw data if name enrichment fails.
+            raise RuntimeError('name_enrichment_unavailable') from None
     return _session.enrich(raw)
 
 
