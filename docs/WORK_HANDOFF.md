@@ -17,7 +17,7 @@
 - PR #6のWork引き継ぎ時点の30件テスト＋Git履歴監査が全環境成功： https://github.com/Sat0T/line-auto-sync/actions/runs/40720726909
 - PR #7の初期コード（凍結整合性・PK時刻順対策）も5ジョブ成功：https://github.com/Sat0T/line-auto-sync/actions/runs/40722362213
 - 追加時刻検査や改ざんケースを含むコードコミット `3fdd227d` のCIも成功：https://github.com/Sat0T/line-auto-sync/actions/runs/40722767872
-- 追加の「整形式だが誤った凍結IDs」テストはPR #7にコミット済み。**本書作成時点では最新HEAD `01fe205d` のCIが未完了**。次回は必ず最新CIを確認し、失敗していたら修正する。
+- 整形式だが誤った凍結IDsの試験を含む**37件**をWindows/Linux × Python3.9/3.12の全4環境でPASS。履歴監査もPASS（計5ジョブ）：https://github.com/Sat0T/line-auto-sync/actions/runs/40723331727 （検証時コードと引き継ぎ更新HEAD `8f70b839`）。後続の文書更新はソース変更を含まない。次回は引き続き最新HEADのCIを照合する。
 - CI成功は合成SQLite、模擬HTTP、rootless .debのオフライン構造検証のみ。実LINE/GAS/独立端末は未検証。
 
 ## 残る重大な問題
