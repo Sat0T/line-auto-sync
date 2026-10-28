@@ -357,9 +357,78 @@ with closing(sqlite3.connect(STATE_DIR/'normal-delivery.sqlite')) as db:
     db.execute("UPDATE delivery SET ids='NOT_JSON' WHERE singleton=1")
     db.commit()
 called=[]
-result=sender.send_once(lambda *args:called.append(args) or True,now=10060)
-assert result['error']=='delivery_unconfirmed' and not called
+try:sender.send_once(lambda *args:called.append(args) or True,now=10060)
+except DeliveryError as e:assert str(e)=='corrupt_frozen_delivery'
+else:raise AssertionError('corrupt frozen delivery incorrectly accepted')
+assert not called
 assert status()['pending']==1 and status()['frozen']
+''')
+
+
+    def test_corrupt_frozen_body_and_queue_payload_never_transmit_or_ack(self):
+        self.case(r'''
+sync.collect();add(102);sync.collect()
+assert sender.send_once(lambda *args:False,now=10000)['error']=='delivery_unconfirmed'
+with closing(sqlite3.connect(STATE_DIR/'normal-delivery.sqlite')) as db:
+    db.execute("UPDATE delivery SET body=body||'tampered' WHERE singleton=1")
+    db.commit()
+calls=[]
+try:sender.send_once(lambda *args:calls.append(args) or True,now=10060)
+except DeliveryError as e:assert str(e)=='corrupt_frozen_delivery'
+else:raise AssertionError('altered frozen body was accepted')
+assert not calls and status()['pending']==1
+with closing(sqlite3.connect(STATE_DIR/'normal-delivery.sqlite')) as db:
+    db.execute("UPDATE delivery SET body=substr(body,1,length(body)-8) WHERE singleton=1")
+    db.execute("UPDATE messages SET raw='[]' WHERE pk=102")
+    db.commit()
+try:sender.send_once(lambda *args:calls.append(args) or True,now=10060)
+except DeliveryError as e:assert str(e)=='corrupt_frozen_delivery'
+else:raise AssertionError('modified queued message was accepted')
+assert not calls and status()['pending']==1
+''')
+
+    def test_rotated_token_is_used_after_freezing_before_post(self):
+        self.case(r'''
+sync.collect();add(102);sync.collect()
+original=DeliveryState.freeze
+def rotate(q,body,ids):
+    original(q,body,ids)
+    config['transport']['token']='SYNTHETIC_ROTATED_TOKEN'
+    CONFIG_FILE.write_text(json.dumps(config))
+tokens=[]
+with patch.object(DeliveryState,'freeze',rotate):
+    assert sender.send_once(
+        lambda endpoint,token,body,maxid: tokens.append(token) or True,
+        now=10000)['sent']
+assert tokens==['SYNTHETIC_ROTATED_TOKEN']
+assert status()['pending']==0
+''')
+
+    def test_end_to_end_payload_can_be_sorted_by_time_not_primary_key(self):
+        self.case(r'''
+sys.path.insert(0,str(Path(sync.__file__).resolve().parents[1]/'tests'))
+import test_receiver_contract
+sync.collect()
+with closing(sqlite3.connect(database)) as db:
+    db.execute('INSERT INTO ZMESSAGE VALUES(?,?,?,?,?)',
+        (102,1735689720000,2,1,'older PK but newer time'))
+    db.execute('INSERT INTO ZMESSAGE VALUES(?,?,?,?,?)',
+        (103,1735689660000,2,1,'newer PK but older time'))
+    db.commit()
+assert sync.collect()['pending']==2
+with closing(test_receiver_contract.DurableMockReceiver(
+        STATE_DIR/'offline_reverse_timestamp.sqlite')) as receiver:
+    requests=[]
+    def post(endpoint,token,body,maxid):
+        import presentation
+        records=presentation.decode_named(body.split('\n',1)[1])
+        requests.append([int(x['refs']['message_pk']) for x in records])
+        assert receiver.accept('OFFLINE_ONLY_TOKEN',maxid,body)=='OK'
+        return True
+    assert sender.send_once(post,now=10000)['sent']
+    assert requests==[[103,102]],requests
+    assert receiver.effect_count()==2
+assert status()['pending']==0 and status()['acknowledged']==103
 ''')
 
 
