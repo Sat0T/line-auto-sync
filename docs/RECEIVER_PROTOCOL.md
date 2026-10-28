@@ -12,6 +12,9 @@ HTTPS POST JSON: `{"token":"<local secret>","maxid":"<last selected PK>","body":
 records. The **body format version is not the HTTP authentication protocol**.
 Manifest keys include source, batch_id, part/parts, count, sha256. SHA256 covers
 restored canonical B records, each followed by LF, not the compact C1 text.
+**Records are sorted by message timestamp, then PK, not necessarily by ascending PK.**
+A compatible receiver must check uniqueness, source, hashes and `maxid=max(PK)`
+without requiring the transmitted record order to be PK-ascending.
 
 The sender freezes the complete body before HTTP. Timeout, error or crash retries
 the same body, batch_id and selected IDs; new arrivals stay in a different queued
