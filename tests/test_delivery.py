@@ -307,6 +307,7 @@ assert status()['pending']==1 and status()['frozen']
 
     def test_receiver_accept_then_lost_response_replay_has_one_fake_effect(self):
         self.case(r'''
+sys.path.insert(0,str(Path(sync.__file__).resolve().parents[1]/'tests'))
 import test_receiver_contract
 sync.collect();add(102,'only synthetic text');sync.collect()
 calls=[]
