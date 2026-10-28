@@ -43,12 +43,16 @@ class Session:
         self.resolver = None
         self.cache = None
         try:
+            if _las_config_file.is_symlink() or STAGE.is_symlink() or not STAGE.is_dir():
+                raise ValueError('unsafe_names_runtime_path')
             conf = json.loads((_las_config_file).read_text())
             if str(Path((ROOT / 'dbpath').read_text().strip()).resolve()) != conf['line_db']:
                 raise ValueError('database_generation_changed')
             self.source = conf['source_id']
             self.resolver = Resolver(conf['line_db'], conf.get('group_db'), self.source, conf['timestamp_unit'])
             path = STAGE / 'named-cache.sqlite'
+            if path.is_symlink():
+                raise ValueError('symlinked_name_cache')
             if path.exists() and path.stat().st_size:
                 check = sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True)
                 try:

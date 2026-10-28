@@ -10,11 +10,16 @@ Unofficial Python prototype for reading **normal LINE** messages from a local SQ
 - [tests/test_offline.py](tests/test_offline.py) — synthetic SQLite, CLI and fail-closed tests (no real messages or network)
 - [tests/test_delivery.py](tests/test_delivery.py) — durable queue, crash, timeout, concurrent sender and mock receiver regressions
 - [docs/BETA_TESTER_GUIDE.md](docs/BETA_TESTER_GUIDE.md) — current private RC3 testing instructions
+- [docs/PRIVATE_BETA_GUIDE_JA.md](docs/PRIVATE_BETA_GUIDE_JA.md) — Japanese invite-only review guide; not an installation invitation
 - [docs/RECEIVER_PROTOCOL.md](docs/RECEIVER_PROTOCOL.md) — legacy OK vs HMAC v2; required receiver idempotency
 - [docs/PACKAGE_PLAN.md](docs/PACKAGE_PLAN.md) — component split, rootless layout, install/remove/backup/recovery gates
 - [docs/SECURITY_AND_RIGHTS.md](docs/SECURITY_AND_RIGHTS.md) — privacy and redistribution blockers
 - [docs/GUI_OPTIONS.md](docs/GUI_OPTIONS.md) — phase-2 GUI comparison, not an implemented GUI
 - [docs/WORK_HANDOFF.md](docs/WORK_HANDOFF.md) — handoff for continuing development in ChatGPT Work
+- [docs/RC3_CHAT_REVIEW.md](docs/RC3_CHAT_REVIEW.md) — limited code review and confirmed follow-up fixes
+- [docs/BETA_RELEASE_CHECKLIST.md](docs/BETA_RELEASE_CHECKLIST.md) — mandatory private-beta acceptance gates
+- [docs/GAS_RECEIVER_DESIGN.md](docs/GAS_RECEIVER_DESIGN.md) — separate backend receiver and durable dedupe design
+- [docs/LIMITED_SOURCE_SCAN.md](docs/LIMITED_SOURCE_SCAN.md) — scoped secret-pattern source scan and limitations
 - [normal-only-rc1/README_TESTING.txt](normal-only-rc1/README_TESTING.txt) — historical RC1 test package instructions; **read caveats below first**
 
 ## CLI commands
@@ -65,3 +70,8 @@ Please focus on: schema assumptions; SQLite read-only behavior; cursor/ACK and d
 To report an issue, include only sanitized steps, Python version, OS/jailbreak family and synthetic repro cases. **Never attach LINE databases, message logs, tokens, endpoints or user identifiers.**
 
 This repo is offered to solicit technical feedback, **not** as a recommended installation.
+
+## Recent beta-safety review (draft PR #6)
+
+See [RC3 review](docs/RC3_CHAT_REVIEW.md), [backup and recovery plan (Japanese)](docs/BACKUP_RESTORE_TEST_PLAN_JA.md), [limited Git-history audit](docs/LIMITED_SOURCE_SCAN.md), and the [release gate](docs/BETA_RELEASE_CHECKLIST.md). Offline synthetic tests now include receiver acceptance followed by lost ACK, coherent queue backup/restore, a 600-message backlog, and corrupt frozen state. A separate CI history check reports privacy flags without printing matching secrets. **Historical privacy findings remain open; no third-party binary distribution is authorized.**
+- [docs/GUI_SPEC_JA.md](docs/GUI_SPEC_JA.md) — future Japanese GUI UX specification, NOT an implemented interface

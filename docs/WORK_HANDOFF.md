@@ -1,4 +1,76 @@
+# 最新再開情報 — 2026-10-29 JST
+
+この節を以下の過去記録より優先する。**作業開始時・重要変更/テスト完了時に本書を作業ブランチへコミットし、最後まで保存を先送りしない。**
+
+## 1. 最後に完了した作業
+2026-10-29にGitHubでPR #5/#6、本書、PR #6最新HEADのCIを確認。利用枠が残り約5%のため、新規実装・再テストを開始せず、最新再開情報の保存に限定した。
+
+## 2. ブランチ・PR・コミット
+- PR #5: https://github.com/Sat0T/line-auto-sync/pull/5
+  - `fix/beta-delivery-safety` → `main`、Draft/open/unmerged
+  - 確認済みHEAD: `c9ad70b9adbc02f28fc434543579974e3ceb803e`
+- PR #6: https://github.com/Sat0T/line-auto-sync/pull/6
+  - `audit/rc3-chat-hardening` → `fix/beta-delivery-safety`、Draft/open/unmerged
+  - 本更新直前の確認済み最新HEAD: `b9536d5daedccc700382a3b3ad6c5b28c08a55d2`
+- 本書更新コミットのSHAはGitHub上の本ファイルの最新履歴から取得する。自己参照によるSHA更新の繰り返しは行わない。更新コミット後の最新CI状態はActionsで確認する。
+- 作業再開ブランチはPR #6側。PR #5には既に包含される変更を重複実装しない。マージは承認が必要。
+
+## 3. 変更・追加ファイル
+今回の変更は `docs/WORK_HANDOFF.md` のみ。ソース・設定・テスト・バイナリは変更しない。
+PR #6の既存変更: runtime_paths.py / legacy_names.py / sender.py の安全性強化、tests/test_delivery.py、tests/test_receiver_contract.py、tools/audit_git_history.py、CI、監査・受信設計・復旧・β配布条件・GUI仕様の文書。実際の全差分はPR #6を参照。
+
+## 4. テスト・CI
+- PR #6確認済みHEAD b9536d5 の最新CI: **completed / success**。
+  https://github.com/Sat0T/line-auto-sync/actions/runs/40666027834
+- 30件の合成テストがWindows/Linux × Python3.9/3.12で通過した履歴:
+  https://github.com/Sat0T/line-auto-sync/actions/runs/40665036714
+- 今回は既存テストを再実行していない。合成テスト成功は実LINE/GAS/iOS導入の証明ではない。
+
+## 5. 未解決の重大課題
+1. 実GAS受信側の永続dedupeとACK耐障害性は未検証・未実装確認。本番コピーを無断で取得/公開しない。模擬SQLite受信モデルは本番実装ではない。
+2. 独立したrootless端末でのPython提供パッケージ、所有者/権限、導入/更新/削除/復旧、LINEスキーマ互換は未検証。
+3. 過去のバイナリ2blobのWindows個人パス痕跡、作者メタデータのnon-noreplyメール2種類が要本人判断。実値は本書へ転載しない。履歴書換え・鍵交換・露出是正は未実施。
+4. 包括的な秘密/PII/権利/再配布許諾の審査は未完了。履歴の既知パターン検査成功だけで配布を許可しない。
+5. 長文先頭は保持して後続も停止する。分割回復、キュー容量/保存期間、実際のダウングレード防止は未完成。
+6. GUIは仕様のみ。バックグラウンドサービスはこのβ版にない。手動実行のみ。
+
+## 6. 実装途中・再開位置
+今回の未保存コード・途中実装はない。GitHub PR #6が再開元。
+ローカル作業コピーは古いPR #5 HEADのままの可能性があるため、必ずGitHubの最新HEADを取得して照合する。クリーン確認なしのreset/上書きを行わない。過去のローカルprivateビルドをPR #6最新版と同一扱いしない。
+
+## 7. 本番への影響
+なし。iPad・LINE DB・本番GAS・通知・Googleカレンダー・タスク台帳にはアクセス/変更/停止していない。PRマージ、実機インストール、バイナリ配布はしていない。
+
+## 8. 次回の最優先作業
+まず利用枠とPR #6最新CIを確認し、本書を更新・コミットする。その後PR #6の重大課題を差分レビューで絞り込む。隔離された受信側の実装/検証へ進める前に、公開可能な汎用受信契約と実装対象を確認する。本番GASの調査は本人承認・秘密情報除去済みコピーが必要。
+実機/権利判断待ちの間は、承認不要のオフライン安全性課題を小さな単位で修正し、その都度テスト→本書更新→コミット。既に修正済みのsymlink/redirect防御を再実装しない。
+
+## 9. 人間の承認・操作が必要な事項
+PRマージ、実機への導入、バイナリ配布、公開履歴の書換え/プライバシー方針、権利/同意の判断、隔離実機テスター確保、本番受信側コピーの取扱い。
+利用枠: 残り30%以下は大規模実装を始めない。20%以下はコード修正を停止。10%以下は保存と最終報告のみ。取得不能でも作業単位で保存する。枠を使い切ることを目標にしない。
+
+## 10. 次のWorkへの再開指示
+LINE Auto Syncのクローズドβ準備を継続してください。まず本書の最新節、PR #5/#6、最新HEADとCI、利用枠を確認し、本書を更新してPR #6の作業ブランチへコミットしてください。既存30件の合成検証と実環境未検証を区別し、重大課題から小さく作業してください。重要変更や検証のたびに本書を保存・コミットし、終了前はCI確認→最終引き継ぎ更新→PR/引き継ぎURLと次の指示を報告してください。本番環境は触らず、マージ・実機導入・配布は事前承認まで行わないでください。
+
+---
+
 # ChatGPT Work 引き継ぎ書 — LINE Auto Sync
+
+## 2026-10-28 追加：通常ChatによるRC3安全レビュー（PR #6）
+
+- RC3元ブランチ: fix/beta-delivery-safety / Draft PR #5（mainには未反映）。
+- 追補ブランチ: audit/rc3-chat-hardening / Draft PR #6（PR #5への追加修正として提出）。PR #6も未マージのままレビューすること。
+- runtime_paths.require_enabledでシンボリックリンクの設定・状態参照を拒否。
+- legacy_names.Sessionで名前キャッシュのシンボリックリンクと不適切な状態ディレクトリを拒否。
+- sender.SafeRedirectを同じHTTPS origin（ホスト名・ポートを含む）に制限し、GAS標準のscript.google.comからscript.googleusercontent.comへの応答用redirectはデフォルト443番のみ許可。
+- tests/test_delivery.pyにリンク防御・ポート変更の回帰テストを追加。
+- tests/test_receiver_contract.pyに、**本番GASではない**永続SQLite受信モデルを追加。完全受信、固定ACK前の重複再送、メッセージIDの競合、manifest/checksum、B/C1の検証。メール・カレンダー側のexactly-onceは保証しない。
+- docs/RC3_CHAT_REVIEW.md（限定コードレビュー）、docs/GAS_RECEIVER_DESIGN.md（受信側の分離・耐障害設計）、docs/BETA_RELEASE_CHECKLIST.md（配布ゲート）、docs/LIMITED_SOURCE_SCAN.md（29 tracked filesの既知パターン限定調査）を追加。
+- 既存の個人iPad/launchd/GAS/通知/カレンダー/タスク台帳は操作せず、公開ソースだけ調査・修正した。
+- 次回はPR #6の最新CI・差分レビューを行い、問題なければ**PR #6を先にPR #5へ統合**、その後PR #5の独立レビューを行う。配布や実機テスト、mainへの統合は自動で行わない。
+- 受信側GASの実装確認、第三者端末、包括的秘密/権利監査、リリース判断は依然未完了。
+
+---
 
 ## 最新の再開位置：2026-10-28 / RC3 delivery safety
 
@@ -96,3 +168,18 @@ Branch: `fix/rc1-review-readiness`
 - GitHub ActionsではPython 3.9/3.12で同じビルドを試し、生成物は一般公開用アーティファクトとしてアップロードしない。
 - RC2は古いRC1のバイナリを再利用しない。なお、再現可能なビルドの成功はiOS互換性・実データ送信・再配布権限・包括的秘密情報審査を証明しない。インストール・外部配布は保留する。
 - Workへの指示：PR #4のCI状態を確認し、マージ後に最新版でビルドを再実施。受信側プロトコル・実LINE DBスキーマ・所有者権限・プライバシー/ライセンス確認を優先する。
+
+## 2026-10-28 追加：通常Chatの追加監査・復旧/負荷テスト
+
+- 作業ブランチ `audit/rc3-chat-hardening`（Draft PR #6）に追加。ベースは引き続きDraft PR #5の `fix/beta-delivery-safety`、mainには未反映。
+- `tools/audit_git_history.py` を追加。CIで到達可能なGit履歴のblob・作者メタデータを検査し、鍵の値やメールアドレスを表示せずカテゴリ・件数だけ報告。歴史上のバイナリにもバイト列パターン検査を行う。
+- 監査サンプルで43コミット/70blob/バイナリ2を調査。認証用高確度パターン未検出だが、過去のバイナリ2blobで個人用Windows絶対パスの痕跡を検出。noreply以外のコミットメール2種類あり。公開履歴のプライバシー問題を人間が確認し、強制書き換えはしない。
+- `tests/test_delivery.py` に4テスト追加：SQLiteバックアップ→隔離復元で固定body/ids・pending保持、模擬受信後ACK喪失と安定再送、600件キュー、破損した固定idsで送信停止。既存26件から合計30件に拡充、Windows/Linux×Python3.9/3.12でPASS（コミット `db2e47c2` のCIに根拠）。
+- `docs/BACKUP_RESTORE_TEST_PLAN_JA.md` に復旧・WAL/権限・同一時点のバックアップとダウングレード禁止を明記。
+- 個人用ローカルファイル`PERSONAL_PRACTICAL_HANDOFF_20261028.md` / `ipad-v2/PROGRESS.md` はこのChat実行環境から取得できず、接続済みDriveにも同名ファイルを見つけられなかった。本番GASは**未監査**として維持。
+- 稼働中のiPad/GAS/通知/カレンダー/タスクは無変更。本番iPadにRC3を入れず、バイナリ公開・Draft PRマージもしない。
+- 次の判断：歴史的なパス/作者メール公開の扱いをオーナーが決める。受信側の**コピー**を監査し、独立したrootless端末でインストールと復旧を検証する。β版配布は引き続き未承認。
+
+## 2026-10-28 追加：GUIの仕様案
+- `docs/GUI_SPEC_JA.md` を追加。Sileoでの導入UIと設定GUIを分離。設定ウィザード、診断、キュー件数、手動実行、停止、復旧案内、エラー表示、秘密情報の表示禁止、固定操作だけを受けるバックエンド契約を設計。
+- GUIは**まだ実装せず**、betaの安全確認・権利/本人同意・独立rootless端末での検証後に別PRで取り組む。
