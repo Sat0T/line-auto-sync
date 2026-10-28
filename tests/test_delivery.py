@@ -281,5 +281,86 @@ with patch.object(Path,'is_symlink',
 assert not path.exists()
 ''')
 
+    def test_snapshot_backup_retains_frozen_request_and_cursors(self):
+        self.case(r'''
+sync.collect();add(102,'fixture');sync.collect()
+calls=[]
+def timeout(*args):
+    calls.append(args);raise TimeoutError('synthetic lost connection')
+assert sender.send_once(timeout,now=10000)['error']=='delivery_unconfirmed'
+with closing(sqlite3.connect(STATE_DIR/'normal-delivery.sqlite')) as original:
+    with closing(sqlite3.connect(STATE_DIR/'snapshot.sqlite')) as backup:
+        original.backup(backup)
+restored=STATE_DIR/'isolated-restored-copy'
+restored.mkdir()
+(STATE_DIR/'snapshot.sqlite').replace(restored/'normal-delivery.sqlite')
+with closing(DeliveryState(restored)) as recovered:
+    assert recovered.status()['frozen']
+    assert recovered.status()['pending']==1
+    assert recovered.status()['collected']==102
+    frozen=recovered.db.execute('SELECT * FROM delivery').fetchone()
+    assert frozen['body']==calls[0][2]
+    assert frozen['ids']=='[102]'
+    assert frozen['attempts']==1
+assert status()['pending']==1 and status()['frozen']
+''')
+
+    def test_receiver_accept_then_lost_response_replay_has_one_fake_effect(self):
+        self.case(r'''
+import test_receiver_contract
+sync.collect();add(102,'only synthetic text');sync.collect()
+calls=[]
+with closing(test_receiver_contract.DurableMockReceiver(STATE_DIR/'mock_receiver.sqlite')) as receiver:
+    def post(endpoint, token, body, maxid):
+        assert token=='SYNTHETIC_TOKEN_ONLY'
+        calls.append(body)
+        assert receiver.accept('OFFLINE_ONLY_TOKEN',maxid,body)=='OK'
+        if len(calls)==1:raise TimeoutError('simulated response loss')
+        return True
+    assert sender.send_once(post,now=10000)['error']=='delivery_unconfirmed'
+    assert status()['pending']==1 and status()['frozen']
+    assert receiver.effect_count()==1
+    assert sender.send_once(post,now=10059)['reason']=='retry_wait'
+    assert sender.send_once(post,now=10060)['sent']
+    assert len(calls)==2 and calls[0]==calls[1]
+    assert receiver.effect_count()==1
+assert status()['pending']==0 and not status()['frozen']
+''')
+
+    def test_many_queued_rows_are_drained_in_bounded_batches(self):
+        self.case(r'''
+sync.collect()
+with closing(sqlite3.connect(database)) as db:
+    db.executemany('INSERT INTO ZMESSAGE VALUES(?,?,?,?,?)',
+        [(pk,1735689600000,2,1,'synthetic row %s' % pk) for pk in range(102,702)])
+    db.commit()
+assert sync.collect()['pending']==600
+calls=[]
+for i in range(16):
+    if status()['pending']==0:break
+    result=sender.send_once(
+        lambda endpoint,token,body,maxid: calls.append((body,maxid)) or True,
+        now=10000+3601*i)
+    assert result['sent']
+assert status()['pending']==0, status()
+assert status()['collected']==701
+assert len(calls)>1
+assert len({b for b,maxid in calls})==len(calls)
+''')
+
+    def test_corrupt_frozen_queue_never_sends_and_keeps_pending(self):
+        self.case(r'''
+sync.collect();add(102);sync.collect()
+assert sender.send_once(lambda *args:False,now=10000)['error']=='delivery_unconfirmed'
+with closing(sqlite3.connect(STATE_DIR/'normal-delivery.sqlite')) as db:
+    db.execute("UPDATE delivery SET ids='NOT_JSON' WHERE singleton=1")
+    db.commit()
+called=[]
+result=sender.send_once(lambda *args:called.append(args) or True,now=10060)
+assert result['error']=='delivery_unconfirmed' and not called
+assert status()['pending']==1 and status()['frozen']
+''')
+
+
 if __name__ == '__main__':
     unittest.main()
