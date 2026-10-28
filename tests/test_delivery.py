@@ -241,5 +241,45 @@ for destination in ('http://example.invalid/', 'https://other.example.invalid/')
 ''')
 
 
+    def test_redirect_must_keep_tls_origin_and_only_allow_gas_response_host(self):
+        self.case(r'''
+from urllib.request import Request
+base = Request('https://example.invalid/hook')
+for target in ('https://example.invalid:8443/hook',
+               'https://script.googleusercontent.com/elsewhere',
+               'https://example.invalid:999999/hook',
+               'http://example.invalid/hook'):
+    try:sender.SafeRedirect().redirect_request(base,None,302,'',{},target)
+    except DeliveryError:pass
+    else:raise AssertionError('unsafe receiver redirect accepted')
+same=sender.SafeRedirect().redirect_request(base,None,302,'',{},'https://example.invalid:443/safe')
+assert same.full_url=='https://example.invalid:443/safe'
+gas=sender.SafeRedirect().redirect_request(
+    Request('https://script.google.com/macros/s/fixture/exec'),None,302,'',{},
+    'https://script.googleusercontent.com/macros/echo?user_content_key=fixture')
+assert gas.full_url.startswith('https://script.googleusercontent.com/')
+''')
+
+    def test_config_and_name_cache_symlink_defenses(self):
+        self.case(r'''
+from pathlib import Path
+from unittest.mock import patch
+import legacy_names
+from runtime_paths import require_enabled
+original=Path.is_symlink
+with patch.object(Path,'is_symlink',
+    lambda self: self==CONFIG_FILE or original(self)):
+    try:require_enabled()
+    except RuntimeError as e:assert str(e)=='unsafe_runtime_symlink'
+    else:raise AssertionError('symlinked config accepted')
+path=STATE_DIR/'named-cache.sqlite'
+with patch.object(Path,'is_symlink',
+    lambda self: self==path or original(self)):
+    try:legacy_names.Session()
+    except ValueError as e:assert str(e)=='symlinked_name_cache'
+    else:raise AssertionError('symlinked name cache accepted')
+assert not path.exists()
+''')
+
 if __name__ == '__main__':
     unittest.main()
