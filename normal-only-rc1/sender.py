@@ -14,9 +14,20 @@ from runtime_paths import STATE_DIR, require_enabled
 class SafeRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         old, new = urllib.parse.urlsplit(req.full_url), urllib.parse.urlsplit(newurl)
-        allowed = (new.hostname == old.hostname or
-                   (old.hostname == 'script.google.com' and new.hostname == 'script.googleusercontent.com'))
-        if new.scheme != 'https' or not allowed or new.username or new.password:
+        # Match both the hostname and port. Redirecting to the same name on a
+        # different TLS port can expose the endpoint's authentication token.
+        try:
+            old_origin = (old.scheme, old.hostname, old.port or 443)
+            new_origin = (new.scheme, new.hostname, new.port or 443)
+        except ValueError:
+            raise DeliveryError('unsafe_receiver_redirect') from None
+        same_origin = old_origin == new_origin
+        gas_response_origin = (
+            old_origin == ('https', 'script.google.com', 443) and
+            new_origin == ('https', 'script.googleusercontent.com', 443)
+        )
+        if (new.scheme != 'https' or not (same_origin or gas_response_origin) or
+                new.username or new.password):
             raise DeliveryError('unsafe_receiver_redirect')
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
