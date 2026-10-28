@@ -85,7 +85,15 @@ def audit(repo):
     print("FLAGGED BLOBS BY CATEGORY:",
           ",".join("%s:%s" % (k, v) for k, v in sorted(suspects.items())) or "none")
     print("CAVEAT: regex/history check is NOT a complete secrets, rights, or PII audit")
-    if suspects or stats["large_or_uninspected_blob"]:
+    # Known local paths and email-shaped content are privacy review flags,
+    # whereas detected credential material is an immediate technical failure.
+    # A green workflow never constitutes approval to distribute.
+    credential_categories = set(PATTERNS) - {"private_windows_home"}
+    critical = {k: v for k, v in suspects.items() if k in credential_categories}
+    review = {k: v for k, v in suspects.items() if k not in credential_categories}
+    print("CREDENTIAL_PATTERN_GATE:", "FAIL" if critical else "NO_MATCH")
+    print("HISTORICAL_PRIVACY_REVIEW:", "REQUIRED" if review or published else "NONE_FLAGGED")
+    if critical or stats["large_or_uninspected_blob"]:
         return 2
     return 0
 
