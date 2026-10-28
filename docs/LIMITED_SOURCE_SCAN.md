@@ -33,3 +33,13 @@ Next independent release checks:
 
 See SECURITY_AND_RIGHTS.md and BETA_RELEASE_CHECKLIST.md. No production
 configuration or private data was accessed by this scan.
+
+## 追加検査：全参照Git履歴（2026-10-28）
+
+GitHub Actionsで `tools/audit_git_history.py` を実行。到達可能なGit履歴を横断する自動監査を導入し、コミットメタデータと、過去に削除されたファイルを含むblobの既知パターンを調査する。値はCIログへ出さない。
+
+**基準の実行結果（コミット `1b0767e7`）：** 43コミット、70blob（うちバイナリ2）、16MiB超の未検査blob 0。既知の認証トークン・秘密鍵・Google Apps Script公開URLパターンは検出されなかった。
+
+**未解決のプライバシー注意点：** 過去のバイナリに、Windows利用者ホーム配下の絶対パスを示唆する文字列を2blobで検出。コミットメタデータにもGitHubの非公開用noreply形式ではないメールアドレス2種類が含まれる。実際の値はレポートに記載しない。現行配布物の混入ではないが、公開Git履歴から直ちに消えるわけではないため、本人が履歴公開範囲・メール設定・必要な削除手段を検討する必要がある。履歴の強制書き換えは**行っていない**。
+
+CIは認証情報の高確度パターンを阻止し、パスやメールといった履歴上のプライバシー検討項目は警告に分離している。**CI成功は、履歴に個人情報がないことや配布を承認することではない。** バイナリ内部の意味解析、未知形式のキー、第三者のメッセージ、外部環境、完全なライセンス検証は引き続き別途必要。
