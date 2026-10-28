@@ -50,3 +50,15 @@ has been granted. These tasks require independent sign-off.
 
 Status: PRIVATE SOURCE REVIEW ONLY. No iPad, GAS or real data was changed by
 this review. No public binary publication is authorized.
+
+## 追補検査の結果（2026-10-28）
+
+- [x] GitHub Actionsに過去の到達可能コミット・blob検査を追加。
+- [x] 既知トークン等の高確度パターン検査を実施（該当なし。ただし網羅的ではない）。
+- [ ] 過去のコンパイル済みバイナリに残る利用者絶対パス2件と、2種類の公開作者メールを本人が確認・対応方針決定。強制的なGit履歴改変はしない。
+- [x] 合成DBのバックアップ→別の状態ディレクトリでの復元、固定リクエストの保持、600件のキュー処理、破損時の停止をテスト。
+- [x] 本番GASを変更しない受信側模擬モデルで、ACK消失・受信側永続重複排除を検証。
+- [ ] 本番GASのコピーまたは安全な仕様書が未入手。実受信側の重複防止は未確認。
+- [ ] 実機のWAL・暗号化バックアップ・権限・インストール/削除/復元試験は未実施。
+
+参照：`docs/BACKUP_RESTORE_TEST_PLAN_JA.md`、`docs/LIMITED_SOURCE_SCAN.md`。既存のチェックリストで未完了となっている項目は引き続き配布ゲート。
