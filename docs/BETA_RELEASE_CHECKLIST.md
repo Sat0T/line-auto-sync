@@ -62,3 +62,14 @@ this review. No public binary publication is authorized.
 - [ ] 実機のWAL・暗号化バックアップ・権限・インストール/削除/復元試験は未実施。
 
 参照：`docs/BACKUP_RESTORE_TEST_PLAN_JA.md`、`docs/LIMITED_SOURCE_SCAN.md`。既存のチェックリストで未完了となっている項目は引き続き配布ゲート。
+
+## 2026-10-29 Chat追補：Draft PR #7の新たな安全策
+
+- [x] 配布候補の凍結済み送信本文とIDを、実送信前にmanifest・本文ハッシュ・キュー原文・未ACK行に照合する実装を追加。
+- [x] 受信モデルの「PKは必ず昇順」という誤った制限を除去し、タイムスタンプ順によるPK逆転のテストを追加。
+- [x] 凍結後のトークン更新を送信時に反映する実装・回帰テストを追加。
+- [x] SQLite REALのタイムスタンプをdoctor/collect双方で拒否し、カーソル非進行の回帰テストを追加。
+- [ ] Draft PR #7の最新コミットCIと独立コードレビューを確認し、必要な承認後のみPR #6へ統合。
+- [ ] 本番GAS・rootless実機・権利/プライバシーは依然未検証。現段階で**配布禁止**。
+
+根拠・未解決事項は `docs/CHAT_PREMERGE_REVIEW_20261029.md` を参照。

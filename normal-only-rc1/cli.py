@@ -137,8 +137,10 @@ def doctor():
         if sample is None:
             raise RuntimeError("Cannot verify timestamp unit on an empty database")
         value = sample[0]
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise RuntimeError("Unexpected timestamp type")
+        # Resolver accepts only integral Unix milliseconds. A fractional
+        # SQLite REAL can pass a date-range check but fail on every send.
+        if type(value) is not int or value <= 0:
+            raise RuntimeError("Timestamp must be integer Unix milliseconds")
         try:
             year = dt.datetime.fromtimestamp(value / 1000, dt.timezone.utc).year
         except (OverflowError, OSError, ValueError):

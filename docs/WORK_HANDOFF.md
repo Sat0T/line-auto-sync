@@ -1,3 +1,37 @@
+# 最新再開情報 — 2026-10-29 / Chatの追加レビュー・PR #7
+
+**この節を以下の古い引き継ぎより優先。** 作業内容はGitHubでのみ保存。Workの利用枠を消費する実機・GAS・PC操作は行っていない。
+
+## 完了したこと
+- Draft PR #7: https://github.com/Sat0T/line-auto-sync/pull/7
+- PR #7 ブランチ `audit/chat-rc3-reliability-gates` → PR #6 `audit/rc3-chat-hardening`。PR #6 → PR #5 `fix/beta-delivery-safety`、PR #5 → main。**3つともDraft・未マージを維持**。
+- 受信モデルのPK昇順必須という誤った前提を除去。実送信形式は時刻・PKでソートされるため、逆転ケースを含む模擬受信テストを追加。
+- `DeliveryState.verify_frozen` を追加。送信直前に凍結済みmanifest・source・PK一覧・バッチのハッシュ・キュー本文ハッシュ・未ACK状態を照合。整形式でも誤った凍結済みIDs、本文改ざん、キュー改ざんは送信を止め、ACKを更新しない。
+- `sender.py` は凍結後に有効設定を読み直し、トークン更新後は現在のトークンで送信。
+- `cli.py` doctorと `delivery_state.py` 収集時のUnixミリ秒検査をResolverと一致させる。非整数・範囲外日時を拒否し、収集カーソルを誤進行させない。
+- `tests/test_delivery.py`, `tests/test_receiver_contract.py`, `tests/test_offline.py` に凍結IDs改ざん・内容改ざん・認証更新・逆転タイムスタンプ・SQLite REAL拒否・収集失敗後の回復の回帰テスト追加。
+- `docs/CHAT_PREMERGE_REVIEW_20261029.md` を作成。 `docs/RECEIVER_PROTOCOL.md`、`docs/BETA_RELEASE_CHECKLIST.md` も修正。
+- 作業対象はすべて公開GitHubの合成データ/候補ソースのみ。本番iPad・LINE DB・GAS・Gmail通知・カレンダー・タスク台帳は**無変更・未アクセス**。PRのマージ、実機導入、バイナリ配布も行わない。
+
+## 検証状況
+- PR #6のWork引き継ぎ時点の30件テスト＋Git履歴監査が全環境成功： https://github.com/Sat0T/line-auto-sync/actions/runs/40720726909
+- PR #7の初期コード（凍結整合性・PK時刻順対策）も5ジョブ成功：https://github.com/Sat0T/line-auto-sync/actions/runs/40722362213
+- 追加時刻検査や改ざんケースを含むコードコミット `3fdd227d` のCIも成功：https://github.com/Sat0T/line-auto-sync/actions/runs/40722767872
+- 整形式だが誤った凍結IDsの試験を含む**37件**をWindows/Linux × Python3.9/3.12の全4環境でPASS。履歴監査もPASS（計5ジョブ）：https://github.com/Sat0T/line-auto-sync/actions/runs/40723331727 （検証時コードと引き継ぎ更新HEAD `8f70b839`）。後続の文書更新はソース変更を含まない。次回は引き続き最新HEADのCIを照合する。
+- CI成功は合成SQLite、模擬HTTP、rootless .debのオフライン構造検証のみ。実LINE/GAS/独立端末は未検証。
+
+## 残る重大な問題
+1. 実GAS受信側のバッチ永続dedupeとACK保証、Googleサービスへの副作用の再試行（本番の安全なコピー未入手）。
+2. 独立したrootless脱獄端末の実機インストール・Python/SSL/SQLite依存/権限/実LINEスキーマ/アンインストール・復旧。
+3. 包括的権利・再配布・個人情報・同意確認。過去GitバイナリのWindows個人パス2件、作者メール2件の本人判断。歴史書換えはしない。
+4. 送信中のSQLite書込ロックとHTTPタイムアウト、巨大メッセージの先頭詰まり、キュー保持上限、秘密情報暗号化、旧版ダウングレード阻止、GUI実装。
+5. LINE DBの高水位PK方式では後からテキストが完成・編集された既存行を確実に同期できる保証がない。
+
+## 次のWorkへの一行指示
+**PR #7の最新HEADとGitHub Actionsを確認→差分レビュー・追加異常系の精査→本書を更新・コミット→必要に応じ独立した別ブランチで修正。** PR #7を先にPR #6へ、PR #6をPR #5へ統合するには本人承認。mainへの統合とバイナリ配布は別の承認。稼働中iPad/GASは触らず、実GASの確認は本人が提供する秘密除去済みコピーのみで実施する。作業の途中にも最新引き継ぎ書を保存する。
+
+---
+
 # 最新再開情報 — 2026-10-29 JST
 
 この節を以下の過去記録より優先する。**作業開始時・重要変更/テスト完了時に本書を作業ブランチへコミットし、最後まで保存を先送りしない。**
