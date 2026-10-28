@@ -66,7 +66,8 @@ def audit(repo):
         raw = git("-C", str(repo), "cat-file", "blob", sha)
         if b"\x00" in raw:
             stats["binary_blob"] += 1
-            continue
+        # Scan binary blobs for exact byte-patterns too; this is not full
+        # decompilation or semantic review of historical .pyc files.
         for flag in scan_blob(raw):
             suspects[flag] += 1
     email_list = git("-C", str(repo), "log", "--all",
