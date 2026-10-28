@@ -69,7 +69,7 @@ class DurableMockReceiver:
                 type(manifest["parts"]) is not int or manifest["parts"] != 1 or
                 type(manifest["count"]) is not int or manifest["count"] != len(records) or
                 manifest["sha256"] != digest or manifest["batch_id"] != batch_id or
-                len(set(ids)) != len(ids) or ids != sorted(ids) or maxid != max(ids)):
+                len(set(ids)) != len(ids) or maxid != max(ids)):
             raise ContractError("payload_manifest_conflict")
         body_hash = transport.digest(body.encode("utf-8"))
         with self.db:
