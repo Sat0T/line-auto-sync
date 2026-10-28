@@ -1,4 +1,5 @@
 """Offline-only integration checks; never access actual LINE DB or network."""
+from contextlib import closing
 import json
 import os
 import sqlite3
@@ -18,7 +19,7 @@ class ManualCLIIntegration(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.db = self.root / "synthetic.sqlite3"
-        with sqlite3.connect(self.db) as c:
+        with closing(sqlite3.connect(self.db)) as c:
             c.executescript("""
                 CREATE TABLE ZMESSAGE(
                     Z_PK INTEGER PRIMARY KEY, ZTIMESTAMP INTEGER,
@@ -119,8 +120,9 @@ print('PASS: actual resolver against synthetic SQLite')
     def test_schema_failure_blocks_enable(self):
         self.call("init")
         self.configure()
-        with sqlite3.connect(self.db) as c:
+        with closing(sqlite3.connect(self.db)) as c:
             c.execute("DROP TABLE ZMESSAGE")
+            c.commit()
         self.call("doctor", success=False)
         self.call("enable", success=False)
         config = json.loads(
