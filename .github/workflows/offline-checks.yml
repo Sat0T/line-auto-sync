@@ -24,4 +24,4 @@ jobs:
           python -m compileall -q normal-only-rc1 tests
           python -m unittest discover -s tests -v
       - name: Build unshared private .deb and verify archive
-        run: python tools/build_private_rc2.py
+        run: python tools/build_private_beta.py

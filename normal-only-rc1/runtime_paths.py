@@ -1,6 +1,8 @@
 import json
 import os
+import re
 from pathlib import Path
+from urllib.parse import urlsplit
 
 BASE_DIR = Path(os.environ.get(
     "LINE_AUTO_SYNC_BASE_DIR",
@@ -13,6 +15,17 @@ CONFIG_DIR = Path(os.environ.get(
     "LINE_AUTO_SYNC_CONFIG_DIR", str(BASE_DIR / "config")
 ))
 CONFIG_FILE = CONFIG_DIR / "config.json"
+
+
+def valid_endpoint(endpoint):
+    if not isinstance(endpoint, str) or any(c in endpoint for c in '\r\n\t'):
+        return False
+    try:
+        url = urlsplit(endpoint)
+        return bool(url.scheme == 'https' and url.hostname and not url.username
+                    and not url.password and not url.fragment and url.port != 0)
+    except ValueError:
+        return False
 
 def require_enabled():
     if not CONFIG_FILE.is_file():
@@ -31,14 +44,14 @@ def require_enabled():
     endpoint = transport.get("endpoint")
     token = transport.get("token")
 
-    if not isinstance(endpoint, str) or not endpoint.startswith("https://"):
+    if not valid_endpoint(endpoint):
         raise RuntimeError("A valid HTTPS endpoint is required")
 
     if not isinstance(token, str) or not token.strip():
         raise RuntimeError("A nonempty authentication token is required")
 
     source_id = config.get("source_id")
-    if not isinstance(source_id, str) or not source_id.strip():
+    if not isinstance(source_id, str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,64}', source_id) or 'REPLACE' in source_id:
         raise RuntimeError("source_id is required")
 
     if not STATE_DIR.is_dir():

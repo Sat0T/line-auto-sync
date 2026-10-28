@@ -1,28 +1,49 @@
-from runtime_paths import STATE_DIR as _las_state_dir, require_enabled as _las_require_enabled
-_las_require_enabled()
-from checkpoint import scan_low as _las_scan_low
+"""Read-only LINE snapshot to a durable local queue before sending."""
 from pathlib import Path
-from urllib.parse import quote
-import sqlite3,csv
+import sqlite3
+import subprocess
+import sys
+from delivery_state import DeliveryError, DeliveryState
+from runtime_paths import STATE_DIR, require_enabled
 
-p = _las_state_dir
-db=(p/"dbpath").read_text().strip()
-c=sqlite3.connect("file:"+quote(db)+"?mode=ro",uri=True)
-high=c.execute("SELECT COALESCE(MAX(Z_PK),0) FROM ZMESSAGE").fetchone()[0]
-state=p/"lastid"
-low = _las_scan_low(p, int(state.read_text()) if state.exists() else high)
-rows=c.execute("SELECT Z_PK,ZTIMESTAMP,ZCHAT,ZSENDER,ZTEXT FROM ZMESSAGE WHERE Z_PK>? AND Z_PK<=? AND length(ZTEXT)>0 ORDER BY Z_PK",(low,high)).fetchall()
-if rows:
-    with (p/"new.csv").open("w",newline="",encoding="utf-8") as f:
-        csv.writer(f).writerows(rows)
-(p/"lastid.tmp").write_text(str(high))
-(p/"lastid.tmp").replace(state)
-print("NEW",len(rows),"LAST_ID",high)
-# hourly sender
-import subprocess,sys
-subprocess.run([sys.executable, str(Path(__file__).with_name("sender.py"))], check=True)
 
-# LINE_SQUARE_HOOK_V1
-import os as _las_os
-if _las_os.environ.get("LINE_AUTO_SYNC_OPENCHAT_ENABLED") == "1":
-    raise RuntimeError("OpenChat is unavailable in dev3")
+def collect():
+    config = require_enabled()
+    queue = DeliveryState(STATE_DIR)
+    connection = None
+    try:
+        with queue.transaction():
+            queue.bind(config)
+            database = Path(config['line_db']).resolve(strict=True)
+            pointer = STATE_DIR / 'dbpath'
+            if pointer.is_symlink() or Path(pointer.read_text().strip()).resolve(strict=True) != database:
+                raise DeliveryError('database_pointer_mismatch')
+            connection = sqlite3.connect(database.as_uri() + '?mode=ro', uri=True, timeout=3)
+            connection.execute('PRAGMA query_only=ON')
+            connection.execute('BEGIN')
+            high = connection.execute('SELECT COALESCE(MAX(Z_PK),0) FROM ZMESSAGE').fetchone()[0]
+            low = queue.initialize_cursor(high)
+            if high < low:
+                raise DeliveryError('source_database_rewound')
+            rows = connection.execute('''SELECT Z_PK,ZTIMESTAMP,ZCHAT,ZSENDER,ZTEXT
+                FROM ZMESSAGE WHERE Z_PK>? AND Z_PK<=? AND length(ZTEXT)>0 ORDER BY Z_PK''', (low, high))
+            count = queue.insert_rows(rows)
+            queue.set('collected', high)
+        return dict(queue.status(), added=count)
+    finally:
+        if connection is not None:
+            connection.close()
+        queue.close()
+
+
+def main():
+    print('COLLECT', collect())
+    subprocess.run([sys.executable, str(Path(__file__).with_name('sender.py'))], check=True)
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception:
+        print('ERROR: collection_or_delivery_failed', file=sys.stderr)
+        raise SystemExit(1)

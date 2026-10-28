@@ -1,5 +1,30 @@
 # ChatGPT Work 引き継ぎ書 — LINE Auto Sync
 
+## 最新の再開位置：2026-10-28 / RC3 delivery safety
+
+以下の古い作業履歴より、この節を優先する。
+
+- 基点main: `609e25d1e1915350830835583c5c05923d93e6da`。取得時にユーザー引き継ぎと一致。
+- 作業ブランチ: `fix/beta-delivery-safety`。個人用iPad・実LINE DB・GAS・既存通知・カレンダー・タスク台帳にはアクセス/変更していない。
+- `delivery_state.py`を追加。自身のapplication_idを持つprivate SQLiteへ、取得済み行とcollectedを同一トランザクションで保存。送信前に本文/batch ID/対象PKを固定・確定し、受信OK後にACK対象/成功時刻/固定バッチ削除をまとめて確定。再送は同じ内容、失敗時は保持＋バックオフ。
+- source_id/DBパスと実体/送信先をキューへ結び付け、変更を検出したら停止。LINE DBはmode=ro/query_only/読み取りスナップショット。取得済みの行は元DBから消えてもローカルに保持。
+- 旧CSV/sentid/initial_scan_idは初回だけ採用し、以後は更新しない。新規環境は既存履歴を遡らない。曖昧・破損状態は停止。旧版との並行実行・新キューを無視するダウングレードは禁止。
+- 長文より前の正常なprefixは送れるが、長文自体と後続は保持して停止。分割・自動回復は未実装。旧finish_only_heldで未送信位置をACK済みにする経路は拒否へ変更。
+- 実通信はlegacy token/body/OKのまま。transport.pyのHMAC/構造化ACKとは別。タイムアウト後の重複防止は受信側の永続dedupeが必要で、クライアントだけでexactly-onceを保証しない。
+- `status`を追加。URL内認証情報・不正なHTTPS URL・危険なredirectを拒否、HTTP応答や例外の本文をログへ出さない。
+- 新ビルダー `tools/build_private_beta.py`：RC3 PRIVATE `0.1.2~rc3`。12モジュール＋launcher＋汎用READMEのみ。Python3.9/sqlite3/TLSのlauncher事前検査、control内容の読戻し検査を追加。旧build_private_rc2.pyは互換入口で、出力はRC3。
+- `firmware >=15.0`を宣言。Python依存のパッケージID/バージョンは実機未確認なので憶測でDependsへ追加していない。バックグラウンドサービスなし、manual only、実機インストール未実施。
+- 追加テストは合成SQLite/差し替えたHTTPのみ。取得/ACK前後のクラッシュ、再送固定、同時送信、CSV採用、長文prefix、偽ACK、送信先変更、redirect、foreign DB、再現可能なarchive/control検査を対象とする。
+- 参照：BETA_TESTER_GUIDE.md、RECEIVER_PROTOCOL.md、PACKAGE_PLAN.md、SECURITY_AND_RIGHTS.md、GUI_OPTIONS.md。
+- ローカル最終検証：20件PASS、RC3 PRIVATEのビルド/アーカイブ照合PASS。SHA256 `cd13e83a07ae136075d4b3823c81d1d8374df87b23174b962b4cd9b98bb43416`。これは今回の作業コピー由来の非公開成果物で、実機インストール・配布はしていない。
+- 限定的な既知パターン検査：作業ツリー29ファイルと既存履歴31 blobで該当0。未知の秘密、コミットメタデータ、権利、運用環境まで保証する包括監査ではない。詳細レポートはignored dist内だけに保存。
+
+### 次回も残す制限
+
+独立rootless端末での権限/依存/実スキーマ/名前/導入削除、受信側GASの永続dedupe、包括的なソース・履歴・秘密情報審査、権利者の再配布許諾、実機での更新/ダウングレード防止は未完了。GUI比較資料のみ追加し、ネイティブGUI実装は始めていない。配布バイナリを公開しない。既存4件のテストを含む最終テスト/CI結果はPRを参照し、ビルド成功を実機保証にしない。
+
+---
+
 作成日: 2026-10-28 JST
 Repository: https://github.com/Sat0T/line-auto-sync
 作業ブランチ: `fix/rc1-review-readiness`

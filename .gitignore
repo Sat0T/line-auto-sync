@@ -12,3 +12,4 @@ config.json
 private-build/
 private-ipad-snapshot/
 assembly-private/
+dist/
