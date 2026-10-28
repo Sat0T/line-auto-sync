@@ -454,5 +454,22 @@ assert sender.send_once(lambda *args:True,now=10000)['sent']
 ''')
 
 
+    def test_parseable_but_wrong_frozen_ids_never_ack_unrelated_message(self):
+        self.case(r'''
+sync.collect();add(102,'synthetic source message');sync.collect()
+assert sender.send_once(lambda *args:False,now=10000)['error']=='delivery_unconfirmed'
+with closing(sqlite3.connect(STATE_DIR/'normal-delivery.sqlite')) as db:
+    db.execute("UPDATE delivery SET ids='[999]' WHERE singleton=1")
+    db.commit()
+calls=[]
+try:sender.send_once(lambda *args:calls.append(args) or True,now=10060)
+except DeliveryError as e:assert str(e)=='corrupt_frozen_delivery'
+else:raise AssertionError('mismatched but parseable ids were accepted')
+assert not calls
+assert status()['pending']==1 and status()['acknowledged']==101
+''')
+
+
+
 if __name__ == '__main__':
     unittest.main()
