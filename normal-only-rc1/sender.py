@@ -70,15 +70,19 @@ def send_once(post=None, now=None):
         # Serialize attempts; acceptance-before-crash still needs receiver dedupe.
         failed = False
         with queue.transaction():
-            queue.bind(require_enabled())
+            current_config = require_enabled()
+            queue.bind(current_config)
             active = queue.db.execute('SELECT * FROM delivery').fetchone()
             if active is None:
                 return dict(queue.status(), sent=False, reason='already_acknowledged')
+            # Local corruption must STOP, not merely schedule another HTTP retry.
+            ids = queue.verify_frozen(active, current_config['source_id'])
             if active['next_attempt'] > now:
                 return dict(queue.status(), sent=False, reason='retry_wait')
             try:
-                if post(config['transport']['endpoint'], config['transport']['token'],
-                        active['body'], max(json.loads(active['ids']))) is not True:
+                if post(current_config['transport']['endpoint'],
+                        current_config['transport']['token'],
+                        active['body'], max(ids)) is not True:
                     raise DeliveryError('receiver_ack_not_ok')
             except Exception:
                 attempt = active['attempts'] + 1
