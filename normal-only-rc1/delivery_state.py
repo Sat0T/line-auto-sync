@@ -23,11 +23,11 @@ def normalize_row(row):
     row = ["" if x is None else str(x) for x in row]
     if not re.fullmatch(r"[1-9][0-9]*", row[0]) or not row[4]:
         raise DeliveryError("invalid_message_row")
-    try:
-        if not math.isfinite(float(row[1])):
-            raise ValueError()
-    except ValueError:
-        raise DeliveryError("invalid_message_timestamp") from None
+    # Match the resolver's strict Unix-millisecond contract at COLLECTION,
+    # before the collected cursor can advance past an unreadable row.
+    if (not re.fullmatch(r"[0-9]+", row[1]) or
+            not 946684800000 <= int(row[1]) < 4133980800000):
+        raise DeliveryError("invalid_message_timestamp")
     if len(json.dumps(row, ensure_ascii=False).encode("utf-8")) > 16 * 1024 * 1024:
         raise DeliveryError("message_exceeds_storage_limit")
     return row
