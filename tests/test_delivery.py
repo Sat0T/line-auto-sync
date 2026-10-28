@@ -433,5 +433,26 @@ assert status()['pending']==0 and status()['acknowledged']==103
 ''')
 
 
+    def test_invalid_new_timestamp_keeps_cursor_and_recovers_after_fix(self):
+        self.case(r'''
+sync.collect()
+with closing(sqlite3.connect(database)) as db:
+    db.execute('INSERT INTO ZMESSAGE VALUES(?,?,?,?,?)',
+        (102,1735689600000.5,2,1,'synthetic fractional millis'))
+    db.commit()
+try:sync.collect()
+except DeliveryError as e:assert str(e)=='invalid_message_timestamp'
+else:raise AssertionError('invalid timestamp silently collected')
+assert status()['collected']==101 and status()['pending']==0
+with closing(sqlite3.connect(database)) as db:
+    db.execute('UPDATE ZMESSAGE SET ZTIMESTAMP=? WHERE Z_PK=102',
+        (1735689600000,))
+    db.commit()
+assert sync.collect()['pending']==1
+assert status()['collected']==102
+assert sender.send_once(lambda *args:True,now=10000)['sent']
+''')
+
+
 if __name__ == '__main__':
     unittest.main()
