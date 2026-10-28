@@ -28,6 +28,8 @@ def valid_endpoint(endpoint):
         return False
 
 def require_enabled():
+    if CONFIG_DIR.is_symlink() or CONFIG_FILE.is_symlink() or STATE_DIR.is_symlink():
+        raise RuntimeError('unsafe_runtime_symlink')
     if not CONFIG_FILE.is_file():
         raise RuntimeError("Initial configuration is missing")
 
