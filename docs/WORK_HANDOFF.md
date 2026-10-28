@@ -62,3 +62,12 @@ Branch: `fix/rc1-review-readiness`
 
 ## 依頼する作業
 以上を引き継いでリポジトリの状態とテストを確認し、残る実装問題を安全に改善して、技術者レビュー可能なPublic GitHubドキュメントを維持する。ユーザーが改めて承認するまで、既存iPadへの操作や実メッセージ送信はしない。
+
+
+## 2026-10-28 追加：非公開RC2の再現可能なWindowsビルド
+- ブランチ `build/reproducible-private-rc2` / Pull Request #4 に、`tools/build_private_rc2.py` を追加した。
+- Windows、Python 3.9以降のPCで `py tools/build_private_rc2.py` を実行すると、合成SQLiteのオフラインテスト後、`dist/line-auto-sync_0.1.1-rc2_PRIVATE.deb` と `dist/RC2_BUILD_REPORT.json` が作られる。
+- ビルドは11モジュールの許可リスト、Python 3.9構文検査、既知の秘密パターン、重要安全ガードの存在確認、生成アーカイブの展開照合を含む。SHA-256を表示する。
+- GitHub ActionsではPython 3.9/3.12で同じビルドを試し、生成物は一般公開用アーティファクトとしてアップロードしない。
+- RC2は古いRC1のバイナリを再利用しない。なお、再現可能なビルドの成功はiOS互換性・実データ送信・再配布権限・包括的秘密情報審査を証明しない。インストール・外部配布は保留する。
+- Workへの指示：PR #4のCI状態を確認し、マージ後に最新版でビルドを再実施。受信側プロトコル・実LINE DBスキーマ・所有者権限・プライバシー/ライセンス確認を優先する。
