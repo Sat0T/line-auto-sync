@@ -163,6 +163,62 @@ class DeliveryState:
         self.db.execute("INSERT INTO delivery(singleton,body,ids,batch_id) VALUES(1,?,?,?)",
                         (body, json.dumps(ids), manifest["batch_id"]))
 
+    def verify_frozen(self, delivery, source):
+        """Fail closed before HTTP if a persisted request or its queued IDs drift.
+
+        A frozen request can outlive a process and must be independently
+        reconciled with the queue; JSON readability alone is not sufficient.
+        """
+        import presentation
+        import transport
+
+        try:
+            body = delivery["body"]
+            manifest_line, separator, payload = body.partition("\n")
+            if not separator or not payload or len(body.encode("utf-8")) > 90000:
+                raise ValueError("invalid_frozen_body")
+            manifest = transport.strict_json(manifest_line)
+            records = presentation.decode_named(payload)
+            ids = json.loads(delivery["ids"])
+            if (not isinstance(manifest, dict) or
+                    set(manifest) != {"v", "kind", "source", "batch_id",
+                                     "part", "parts", "count", "sha256"} or
+                    type(manifest["v"]) is not int or manifest["v"] != 2 or
+                    manifest["kind"] != "line_batch" or
+                    manifest["source"] != source or
+                    type(manifest["part"]) is not int or manifest["part"] != 1 or
+                    type(manifest["parts"]) is not int or manifest["parts"] != 1 or
+                    type(manifest["count"]) is not int or
+                    manifest["count"] != len(records) or
+                    type(ids) is not list or not ids or
+                    any(type(pk) is not int or pk <= 0 for pk in ids) or
+                    ids != sorted(set(ids))):
+                raise ValueError("frozen_manifest_or_ids")
+            record_ids = [int(r["refs"]["message_pk"]) for r in records]
+            if sorted(record_ids) != ids:
+                raise ValueError("frozen_record_id_mismatch")
+            digest = transport.digest(transport.records_bytes(records))
+            batch_id = transport.digest((source + "\n" + digest).encode("utf-8"))
+            if (manifest["sha256"] != digest or
+                    manifest["batch_id"] != batch_id or
+                    delivery["batch_id"] != batch_id):
+                raise ValueError("frozen_content_hash_mismatch")
+            for record in records:
+                pk = int(record["refs"]["message_pk"])
+                row = self.db.execute(
+                    "SELECT raw,hash,acked FROM messages WHERE pk=?", (pk,)).fetchone()
+                if (row is None or row["acked"] != 0 or
+                        hashlib.sha256(row["raw"].encode("utf-8")).hexdigest() != row["hash"]):
+                    raise ValueError("frozen_queue_message_missing_or_corrupt")
+                original = json.loads(row["raw"])
+                if (type(original) is not list or len(original) != 5 or
+                        record["text"] != original[4]):
+                    raise ValueError("frozen_text_mismatch")
+            return ids
+        except (ValueError, TypeError, KeyError, IndexError, UnicodeError,
+                presentation.PresentationError, transport.TransportError) as exc:
+            raise DeliveryError("corrupt_frozen_delivery") from None
+
     def acknowledge(self, delivery, now):
         ids = json.loads(delivery["ids"])
         self.db.executemany("UPDATE messages SET acked=1 WHERE pk=?", [(pk,) for pk in ids])
