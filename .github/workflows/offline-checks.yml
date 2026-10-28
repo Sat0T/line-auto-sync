@@ -25,3 +25,17 @@ jobs:
           python -m unittest discover -s tests -v
       - name: Build unshared private .deb and verify archive
         run: python tools/build_private_beta.py
+
+  history-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch repository branches for history coverage
+        run: git fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check reachable Git blobs and public commit metadata (redacted report)
+        run: python tools/audit_git_history.py
