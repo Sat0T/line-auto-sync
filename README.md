@@ -70,3 +70,7 @@ Please focus on: schema assumptions; SQLite read-only behavior; cursor/ACK and d
 To report an issue, include only sanitized steps, Python version, OS/jailbreak family and synthetic repro cases. **Never attach LINE databases, message logs, tokens, endpoints or user identifiers.**
 
 This repo is offered to solicit technical feedback, **not** as a recommended installation.
+
+## Recent beta-safety review (draft PR #6)
+
+See [RC3 review](docs/RC3_CHAT_REVIEW.md), [backup and recovery plan (Japanese)](docs/BACKUP_RESTORE_TEST_PLAN_JA.md), [limited Git-history audit](docs/LIMITED_SOURCE_SCAN.md), and the [release gate](docs/BETA_RELEASE_CHECKLIST.md). Offline synthetic tests now include receiver acceptance followed by lost ACK, coherent queue backup/restore, a 600-message backlog, and corrupt frozen state. A separate CI history check reports privacy flags without printing matching secrets. **Historical privacy findings remain open; no third-party binary distribution is authorized.**
