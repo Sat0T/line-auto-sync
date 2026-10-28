@@ -178,5 +178,22 @@ class ReceiverContractTests(unittest.TestCase):
                 self.assertEqual(receiver.effect_count(), 10)
 
 
+    def test_timestamp_order_is_independent_of_primary_key_order(self):
+        with tempfile.TemporaryDirectory(prefix="las_mock_receiver_") as directory:
+            older_pk = fixture(101)
+            newer_pk = fixture(102)
+            older_pk["time"] = "2025-01-01T09:02:00.000+09:00"
+            newer_pk["time"] = "2025-01-01T09:01:00.000+09:00"
+            body = payload([older_pk, newer_pk])
+            decoded = presentation.decode_named(body.split("\n", 1)[1])
+            self.assertEqual([r["refs"]["message_pk"] for r in decoded],
+                             ["102", "101"])
+            with closing(DurableMockReceiver(Path(directory) / "receiver.sqlite")) as receiver:
+                self.assertEqual(receiver.accept("OFFLINE_ONLY_TOKEN", 102, body), "OK")
+                self.assertEqual(receiver.effect_count(), 2)
+                self.assertEqual(receiver.accept("OFFLINE_ONLY_TOKEN", 102, body), "OK")
+                self.assertEqual(receiver.effect_count(), 2)
+
+
 if __name__ == "__main__":
     unittest.main()
