@@ -1,5 +1,21 @@
 # ChatGPT Work 引き継ぎ書 — LINE Auto Sync
 
+## 2026-10-28 追加：通常ChatによるRC3安全レビュー（PR #6）
+
+- RC3元ブランチ: fix/beta-delivery-safety / Draft PR #5（mainには未反映）。
+- 追補ブランチ: audit/rc3-chat-hardening / Draft PR #6（PR #5への追加修正として提出）。PR #6も未マージのままレビューすること。
+- runtime_paths.require_enabledでシンボリックリンクの設定・状態参照を拒否。
+- legacy_names.Sessionで名前キャッシュのシンボリックリンクと不適切な状態ディレクトリを拒否。
+- sender.SafeRedirectを同じHTTPS origin（ホスト名・ポートを含む）に制限し、GAS標準のscript.google.comからscript.googleusercontent.comへの応答用redirectはデフォルト443番のみ許可。
+- tests/test_delivery.pyにリンク防御・ポート変更の回帰テストを追加。
+- tests/test_receiver_contract.pyに、**本番GASではない**永続SQLite受信モデルを追加。完全受信、固定ACK前の重複再送、メッセージIDの競合、manifest/checksum、B/C1の検証。メール・カレンダー側のexactly-onceは保証しない。
+- docs/RC3_CHAT_REVIEW.md（限定コードレビュー）、docs/GAS_RECEIVER_DESIGN.md（受信側の分離・耐障害設計）、docs/BETA_RELEASE_CHECKLIST.md（配布ゲート）、docs/LIMITED_SOURCE_SCAN.md（29 tracked filesの既知パターン限定調査）を追加。
+- 既存の個人iPad/launchd/GAS/通知/カレンダー/タスク台帳は操作せず、公開ソースだけ調査・修正した。
+- 次回はPR #6の最新CI・差分レビューを行い、問題なければ**PR #6を先にPR #5へ統合**、その後PR #5の独立レビューを行う。配布や実機テスト、mainへの統合は自動で行わない。
+- 受信側GASの実装確認、第三者端末、包括的秘密/権利監査、リリース判断は依然未完了。
+
+---
+
 ## 最新の再開位置：2026-10-28 / RC3 delivery safety
 
 以下の古い作業履歴より、この節を優先する。
