@@ -13,7 +13,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from runtime_paths import CONFIG_DIR, CONFIG_FILE, STATE_DIR, require_enabled
+from runtime_paths import CONFIG_DIR, CONFIG_FILE, STATE_DIR, require_enabled, valid_endpoint
 
 DB_POINTER = "dbpath"
 REQUIRED_MESSAGE_COLUMNS = {"Z_PK", "ZTIMESTAMP", "ZCHAT", "ZSENDER", "ZTEXT"}
@@ -63,7 +63,7 @@ def configure():
     db_input = input("Absolute LINE SQLite database path: ").strip()
     token = getpass.getpass("Authentication token (hidden): ").strip()
 
-    if not endpoint.startswith("https://"):
+    if not valid_endpoint(endpoint):
         raise RuntimeError("HTTPS endpoint required")
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", source_id) or "REPLACE" in source_id:
         raise RuntimeError("Invalid source_id")
@@ -164,7 +164,7 @@ def enable():
     config = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
     if not config.get("transport", {}).get("token"):
         raise RuntimeError("Missing authentication token")
-    if not str(config.get("transport", {}).get("endpoint", "")).startswith("https://"):
+    if not valid_endpoint(config.get("transport", {}).get("endpoint")):
         raise RuntimeError("Missing HTTPS endpoint")
     config["enabled"] = True
     save_config(config)
@@ -192,14 +192,40 @@ def run():
     subprocess.run([sys.executable, str(Path(__file__).with_name("sync.py"))], check=True)
 
 
+def status():
+    from delivery_state import APPLICATION_ID
+    path = STATE_DIR / 'normal-delivery.sqlite'
+    if path.is_symlink() or STATE_DIR.is_symlink():
+        raise RuntimeError('unsafe_state_path')
+    if not path.exists():
+        print(json.dumps({'queue_initialized': False}))
+        return
+    connection = sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True)
+    try:
+        connection.execute('PRAGMA query_only=ON')
+        connection.execute('BEGIN')
+        if connection.execute('PRAGMA application_id').fetchone()[0] != APPLICATION_ID:
+            raise RuntimeError('foreign_delivery_database')
+        meta = dict(connection.execute('SELECT key,value FROM meta'))
+        result = {'queue_initialized': True,
+                  'collected': int(meta.get('collected', '0')),
+                  'acknowledged': int(meta.get('acked', '0')),
+                  'pending': connection.execute('SELECT COUNT(*) FROM messages WHERE acked=0').fetchone()[0],
+                  'frozen': bool(connection.execute('SELECT 1 FROM delivery').fetchone()),
+                  'success_at': meta.get('success_at')}
+        print(json.dumps(result))
+    finally:
+        connection.close()
+
+
 def main():
     os.umask(0o077)
     actions = {
         "init": initialize, "configure": configure, "doctor": doctor,
-        "enable": enable, "disable": disable, "run": run,
+        "enable": enable, "disable": disable, "run": run, "status": status,
     }
     if len(sys.argv) != 2 or sys.argv[1] not in actions:
-        print("Usage: line-auto-sync init|configure|doctor|enable|disable|run")
+        print("Usage: line-auto-sync init|configure|doctor|enable|disable|run|status")
         raise SystemExit(2)
     actions[sys.argv[1]]()
 
@@ -209,5 +235,5 @@ if __name__ == "__main__":
         main()
     except Exception as exc:
         # Do not print user-supplied credentials or exception stack traces.
-        print("ERROR:", exc, file=sys.stderr)
+        print("ERROR: operation_failed (" + type(exc).__name__ + ")", file=sys.stderr)
         raise SystemExit(1)
