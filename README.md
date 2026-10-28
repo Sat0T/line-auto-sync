@@ -10,6 +10,7 @@ Unofficial Python prototype for reading **normal LINE** messages from a local SQ
 - [tests/test_offline.py](tests/test_offline.py) — synthetic SQLite, CLI and fail-closed tests (no real messages or network)
 - [tests/test_delivery.py](tests/test_delivery.py) — durable queue, crash, timeout, concurrent sender and mock receiver regressions
 - [docs/BETA_TESTER_GUIDE.md](docs/BETA_TESTER_GUIDE.md) — current private RC3 testing instructions
+- [docs/PRIVATE_BETA_GUIDE_JA.md](docs/PRIVATE_BETA_GUIDE_JA.md) — Japanese invite-only review guide; not an installation invitation
 - [docs/RECEIVER_PROTOCOL.md](docs/RECEIVER_PROTOCOL.md) — legacy OK vs HMAC v2; required receiver idempotency
 - [docs/PACKAGE_PLAN.md](docs/PACKAGE_PLAN.md) — component split, rootless layout, install/remove/backup/recovery gates
 - [docs/SECURITY_AND_RIGHTS.md](docs/SECURITY_AND_RIGHTS.md) — privacy and redistribution blockers
