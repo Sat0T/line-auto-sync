@@ -370,6 +370,7 @@ assert status()['pending']==1 and status()['frozen']
 sync.collect();add(102);sync.collect()
 assert sender.send_once(lambda *args:False,now=10000)['error']=='delivery_unconfirmed'
 with closing(sqlite3.connect(STATE_DIR/'normal-delivery.sqlite')) as db:
+    original_body=db.execute('SELECT body FROM delivery').fetchone()[0]
     db.execute("UPDATE delivery SET body=body||'tampered' WHERE singleton=1")
     db.commit()
 calls=[]
@@ -378,7 +379,7 @@ except DeliveryError as e:assert str(e)=='corrupt_frozen_delivery'
 else:raise AssertionError('altered frozen body was accepted')
 assert not calls and status()['pending']==1
 with closing(sqlite3.connect(STATE_DIR/'normal-delivery.sqlite')) as db:
-    db.execute("UPDATE delivery SET body=substr(body,1,length(body)-8) WHERE singleton=1")
+    db.execute("UPDATE delivery SET body=? WHERE singleton=1",(original_body,))
     db.execute("UPDATE messages SET raw='[]' WHERE pk=102")
     db.commit()
 try:sender.send_once(lambda *args:calls.append(args) or True,now=10060)
