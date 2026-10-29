@@ -1,12 +1,12 @@
 # Work再開チェックポイント — 2026-10-29 / 状態DBの破損防御
 
 この節を過去の記録より優先する。
-1. 完了: PR #7 HEAD `fac5f22e8f5e139b14c50e55843694ea9747c35f` と最新CI成功を確認。37件の既存合成検証を不必要に繰り返さず差分をレビュー中。
+1. 完了: PR #7 HEAD `fac5f22e8f5e139b14c50e55843694ea9747c35f` と最新CI成功を確認。既存DBの非破壊スキーマ検査と新規DBの原子的初期化を実装し、ローカル42件の合成テスト成功。
 2. 作業ブランチ: `fix/rc3-offline-queue-guards`。PR #7 `audit/chat-rc3-reliability-gates` から分岐し、Chat側と衝突しない。新PRはまだ作成していない。基点SHAは上記、以後の最新SHAは本書のGitHub履歴で確認。
-3. 今回の変更: 現時点では本書のみ。次の対象は `normal-only-rc1/delivery_state.py` と合成回帰テスト。
-4. 基点の最新CI: https://github.com/Sat0T/line-auto-sync/actions/runs/40723686017 （completed/success）。今回のコード変更・テストはまだ未実施。
-5. 発見: 既存状態DBはapplication_idだけ確認後、CREATE TABLE IF NOT EXISTSで不足テーブルを再作成する。破損/不完全状態を新規扱いしないため、既存スキーマと整合性を非破壊で確認する対策を検討。実GASdedupe・独立実機・履歴PII/権利のP0は未解決。
-6. 再開位置: 新規/既存DBの初期化経路を分離し、破損・欠落テーブル時に既存状態を維持して停止する小規模変更を予定。未保存実装はまだない。
+3. 今回の変更: `normal-only-rc1/delivery_state.py`、`tests/test_delivery.py`、`docs/BACKUP_RESTORE_TEST_PLAN_JA.md`、本書。既存DBではCREATE/修復しない。新規DBの3テーブルとapplication_idは同一トランザクションで確定。
+4. 基点の最新CI: https://github.com/Sat0T/line-auto-sync/actions/runs/40723686017 （completed/success）。変更後はローカルPython3.12で42件PASS。追加5ケース: テーブル欠落と隔離バックアップ復元、制約欠落、不明trigger、壊れたヘッダ、初期化中断。初回テスト追加時の引用符構文エラーは修正済み。今回のリモートCIはこれから確認する。
+5. 修正した問題: 既存状態DBでapplication_idだけ確認後に不足テーブルを自動再作成していた。以後は読み取り専用で既知スキーマを照合し、欠落/未知レイアウト/trigger/判読不能を拒否。全ページ検査・全データ整合性・同一権限攻撃者への防御を保証するものではない。将来のスキーマ変更には明示的移行が必要。実GASdedupe・独立実機・履歴PII/権利のP0は未解決。
+6. 再開位置: 最初の修正単位がローカル検証完了。次はGitHubへコード/本書を同時保存し、PR作成とCIを確認。破損DBは削除・修復せず保全、別の非公開スナップショットで隔離復元する。
 7. 本番影響: なし。iPad/実LINE/GAS/通知/カレンダー/タスクには未アクセス。インストール/配布/マージなし。
 8. 次: 既存テストとの互換性確認→合成破損DBの回帰テスト→小単位で保存→CI確認。本書も都度更新。
 9. 本人承認: PRマージ・実機導入・バイナリ配布・公開履歴改変・権利判断は必要。本番受信側コピーも許可なしに取得しない。
