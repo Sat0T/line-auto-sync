@@ -670,6 +670,18 @@ else:raise AssertionError('concurrent mutation was acknowledged')
 assert status()['pending']==1 and status()['frozen']
 ''')
 
+    def test_sender_lock_file_is_private_regular_file(self):
+        self.case(r'''
+import stat
+sync.collect();add(102);sync.collect()
+assert sender.send_once(lambda *args:True,now=10000)['sent']
+path=STATE_DIR/'normal-sender.lock'
+info=path.stat()
+assert stat.S_ISREG(info.st_mode)
+assert info.st_nlink==1
+if os.name!='nt':assert stat.S_IMODE(info.st_mode)==0o600
+''')
+
     def test_collector_can_add_new_messages_during_http(self):
         self.case(r'''
 sync.collect();add(102);sync.collect()
