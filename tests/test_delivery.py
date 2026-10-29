@@ -673,9 +673,9 @@ assert status()['pending']==1 and status()['frozen']
     def test_collector_can_add_new_messages_during_http(self):
         self.case(r'''
 sync.collect();add(102);sync.collect()
+add(103,'arrived before HTTP but not yet collected')
 seen=[]
 def post(*args):
-    add(103,'arrived while HTTP is pending')
     seen.append(sync.collect())
     return True
 result=sender.send_once(post,now=10000)
