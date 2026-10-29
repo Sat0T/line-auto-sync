@@ -28,3 +28,11 @@
 
 ## 次の実装単位
 送信者ロックとトランザクション分離を同じ修正単位として実装する。送信者ロックなしでHTTPだけを外へ出す変更は採用しない。
+
+## 実装・検証追記（2026-10-30）
+- Draft PR #9: https://github.com/Sat0T/line-auto-sync/pull/9
+- `sender.py`: 送信者専用のOSロックを導入し、HTTP前にSQLiteトランザクションをCOMMIT。応答後は凍結済み本文/IDs/batch ID/試行状態を再照合してからACKまたは再試行情報を確定する。
+- `tests/test_delivery.py`: 送信中の状態DB別接続書込み、二重送信防止、送信中の凍結状態変更、送信中の収集を検証する4ケースを追加。既存の並行送信テストは新しいfail-closed仕様に合わせた。
+- 最終ソース・テストコミット `5eafe7a26e7957982a0d5668cfdef9b5fc7323cc` のCI: https://github.com/Sat0T/line-auto-sync/actions/runs/40936313137 。Windows/Linux × Python3.9/3.12 の4テストジョブとGit履歴監査の計5ジョブすべて成功。合成テスト49件。初回の失敗は修正済み。
+- 実機/rootlessでのロック動作、実GAS、実LINE、権利、配布は未検証。senderロックの同一権限攻撃者に対する耐性は保証しない。
+- この文書追記以降の最新CIは別途照合する。上記成功は記載したコードコミットに対する結果。
