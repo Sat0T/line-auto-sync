@@ -133,7 +133,7 @@ import csv
 (STATE_DIR/'sentid').write_text('100')
 with (STATE_DIR/'new.csv').open('w',newline='',encoding='utf-8') as f:
     csv.writer(f).writerow([102,1735689600000,2,1,'retained synthetic CSV only'])
-assert sync.collect()['pending']==2
+assert sync.collect()['pending']==2, status()
 assert (STATE_DIR/'sentid').read_text()=='100'
 assert sender.send_once(lambda *args: True,now=10000)['sent']
 assert status()['acknowledged']==102 and (STATE_DIR/'sentid').read_text()=='100'
@@ -191,11 +191,12 @@ calls=[];errors=[]
 def post(*args):calls.append(args);time.sleep(.15);return True
 def run():
     try:sender.send_once(post,now=10060)
-    except BaseException as e:errors.append(type(e).__name__)
+    except BaseException as e:errors.append(str(e))
 threads=[threading.Thread(target=run) for _ in range(2)]
 for t in threads:t.start()
 for t in threads:t.join()
-assert not errors and len(calls)==1 and status()['pending']==0
+assert all(e=='sender_already_running' for e in errors),errors
+assert len(calls)==1 and status()['pending']==0
 ''')
 
     def test_foreign_sqlite_refused_without_modification(self):
@@ -677,7 +678,7 @@ def post(*args):
     assert sync.collect()['pending']==2
     return True
 assert sender.send_once(post,now=10000)['sent']
-assert status()['pending']==1 and status()['acknowledged']==102
+assert status()['pending']==1 and status()['acknowledged']==102,status()
 ''')
 
 
