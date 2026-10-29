@@ -1,5 +1,9 @@
 """Legacy token/body/OK protocol with immutable retries; not HMAC v2."""
+from contextlib import contextmanager
 import json
+import os
+from pathlib import Path
+import stat
 import math
 import sys
 import time
@@ -9,6 +13,54 @@ from delivery_state import DeliveryError, DeliveryState
 import legacy_names
 import normal_hold
 from runtime_paths import STATE_DIR, require_enabled
+
+
+@contextmanager
+def sender_lock(directory):
+    """Independent process lock; never hold a SQLite write transaction over HTTP."""
+    path = Path(directory) / 'normal-sender.lock'
+    if path.is_symlink():
+        raise DeliveryError('unsafe_sender_lock')
+    flags = os.O_RDWR | os.O_CREAT
+    if hasattr(os, 'O_NOFOLLOW'):
+        flags |= os.O_NOFOLLOW
+    try:
+        fd = os.open(str(path), flags, 0o600)
+    except OSError as exc:
+        raise DeliveryError('unsafe_sender_lock') from exc
+    locked = False
+    try:
+        info = os.fstat(fd)
+        # Reject device nodes, directories, and hardlinks before touching bytes.
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise DeliveryError('unsafe_sender_lock')
+        if os.name != 'nt':
+            os.fchmod(fd, 0o600)
+        if os.name == 'nt':
+            import msvcrt
+            if os.fstat(fd).st_size == 0:
+                os.write(fd, b'0')
+            os.lseek(fd, 0, os.SEEK_SET)
+            try:
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            except OSError:
+                raise DeliveryError('sender_already_running') from None
+        else:
+            import fcntl
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                raise DeliveryError('sender_already_running') from None
+        locked = True
+        yield
+    finally:
+        if locked:
+            if os.name == 'nt':
+                os.lseek(fd, 0, os.SEEK_SET)
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
 
 
 class SafeRedirect(urllib.request.HTTPRedirectHandler):
@@ -46,55 +98,75 @@ def send_once(post=None, now=None):
     if not math.isfinite(now):
         raise DeliveryError('invalid_clock')
     post = post_legacy if post is None else post
-    queue = DeliveryState(STATE_DIR)
-    try:
-        # Commit exact content BEFORE HTTP. New messages cannot change retries.
-        with queue.transaction():
-            queue.bind(config)
-            if queue.get('collected') is None:
-                raise DeliveryError('collect_before_send')
-            active = queue.db.execute('SELECT * FROM delivery').fetchone()
-            if active is None:
-                if now - float(queue.get('success_at', '0')) < 3600:
-                    return dict(queue.status(), sent=False, reason='hourly_gate')
-                rows = queue.pending_rows()
-                if not rows:
-                    return dict(queue.status(), sent=False, reason='empty')
-                selection = normal_hold.select_prefix(rows, legacy_names.enrich_legacy)
-                if not selection['lines']:
-                    raise DeliveryError('no_deliverable_prefix')
-                body = legacy_names.finalize_body(''.join(selection['lines']))
-                last = int(selection['last_id'])
-                ids = [int(row[0]) for row in rows if int(row[0]) <= last]
-                queue.freeze(body, ids)
-        # Serialize attempts; acceptance-before-crash still needs receiver dedupe.
-        failed = False
-        with queue.transaction():
-            current_config = require_enabled()
-            queue.bind(current_config)
-            active = queue.db.execute('SELECT * FROM delivery').fetchone()
-            if active is None:
-                return dict(queue.status(), sent=False, reason='already_acknowledged')
-            # Local corruption must STOP, not merely schedule another HTTP retry.
-            ids = queue.verify_frozen(active, current_config['source_id'])
-            if active['next_attempt'] > now:
-                return dict(queue.status(), sent=False, reason='retry_wait')
+    # Serialize senders, not collectors. The lock is released on process exit.
+    with sender_lock(STATE_DIR):
+        queue = DeliveryState(STATE_DIR)
+        try:
+            with queue.transaction():
+                queue.bind(config)
+                if queue.get('collected') is None:
+                    raise DeliveryError('collect_before_send')
+                active = queue.db.execute('SELECT * FROM delivery').fetchone()
+                if active is None:
+                    if now - float(queue.get('success_at', '0')) < 3600:
+                        return dict(queue.status(), sent=False, reason='hourly_gate')
+                    rows = queue.pending_rows()
+                    if not rows:
+                        return dict(queue.status(), sent=False, reason='empty')
+                    selection = normal_hold.select_prefix(rows, legacy_names.enrich_legacy)
+                    if not selection['lines']:
+                        raise DeliveryError('no_deliverable_prefix')
+                    body = legacy_names.finalize_body(''.join(selection['lines']))
+                    last = int(selection['last_id'])
+                    ids = [int(row[0]) for row in rows if int(row[0]) <= last]
+                    queue.freeze(body, ids)
+
+            # Freeze and verify under a short transaction; commit before HTTP.
+            with queue.transaction():
+                current_config = require_enabled()
+                queue.bind(current_config)
+                active = queue.db.execute('SELECT * FROM delivery').fetchone()
+                if active is None:
+                    return dict(queue.status(), sent=False, reason='already_acknowledged')
+                ids = queue.verify_frozen(active, current_config['source_id'])
+                if active['next_attempt'] > now:
+                    return dict(queue.status(), sent=False, reason='retry_wait')
+                frozen = (active['batch_id'], active['body'], active['ids'],
+                          active['attempts'], active['next_attempt'])
+                endpoint = current_config['transport']['endpoint']
+                token = current_config['transport']['token']
+                body = active['body']
+                maxid = max(ids)
+
+            # No SQLite write transaction is held during the network wait.
             try:
-                if post(current_config['transport']['endpoint'],
-                        current_config['transport']['token'],
-                        active['body'], max(ids)) is not True:
-                    raise DeliveryError('receiver_ack_not_ok')
+                accepted = post(endpoint, token, body, maxid) is True
             except Exception:
-                attempt = active['attempts'] + 1
-                delay = min(3600, 60 * 2 ** min(attempt - 1, 6))
-                queue.db.execute('UPDATE delivery SET attempts=?,next_attempt=? WHERE singleton=1', (attempt, now + delay))
-                failed = True
-            else:
-                queue.acknowledge(active, now)
-        return dict(queue.status(), sent=not failed, error='delivery_unconfirmed' if failed else None)
-    finally:
-        queue.close()
-        legacy_names.close()
+                accepted = False
+
+            with queue.transaction():
+                latest_config = require_enabled()
+                queue.bind(latest_config)
+                latest = queue.db.execute('SELECT * FROM delivery').fetchone()
+                if latest is None or (
+                    latest['batch_id'], latest['body'], latest['ids'],
+                    latest['attempts'], latest['next_attempt']
+                ) != frozen:
+                    raise DeliveryError('delivery_changed_during_http')
+                queue.verify_frozen(latest, latest_config['source_id'])
+                if accepted:
+                    queue.acknowledge(latest, now)
+                else:
+                    attempt = latest['attempts'] + 1
+                    delay = min(3600, 60 * 2 ** min(attempt - 1, 6))
+                    queue.db.execute(
+                        'UPDATE delivery SET attempts=?,next_attempt=? WHERE singleton=1',
+                        (attempt, now + delay))
+            return dict(queue.status(), sent=accepted,
+                        error=None if accepted else 'delivery_unconfirmed')
+        finally:
+            queue.close()
+            legacy_names.close()
 
 
 if __name__ == '__main__':

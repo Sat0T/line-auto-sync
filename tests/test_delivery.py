@@ -133,7 +133,7 @@ import csv
 (STATE_DIR/'sentid').write_text('100')
 with (STATE_DIR/'new.csv').open('w',newline='',encoding='utf-8') as f:
     csv.writer(f).writerow([102,1735689600000,2,1,'retained synthetic CSV only'])
-assert sync.collect()['pending']==2
+assert sync.collect()['pending']==2, status()
 assert (STATE_DIR/'sentid').read_text()=='100'
 assert sender.send_once(lambda *args: True,now=10000)['sent']
 assert status()['acknowledged']==102 and (STATE_DIR/'sentid').read_text()=='100'
@@ -191,11 +191,12 @@ calls=[];errors=[]
 def post(*args):calls.append(args);time.sleep(.15);return True
 def run():
     try:sender.send_once(post,now=10060)
-    except BaseException as e:errors.append(type(e).__name__)
+    except BaseException as e:errors.append(str(e))
 threads=[threading.Thread(target=run) for _ in range(2)]
 for t in threads:t.start()
 for t in threads:t.join()
-assert not errors and len(calls)==1 and status()['pending']==0
+assert all(e=='sender_already_running' for e in errors),errors
+assert len(calls)==1 and status()['pending']==0
 ''')
 
     def test_foreign_sqlite_refused_without_modification(self):
@@ -628,6 +629,72 @@ assert not calls
 assert status()['pending']==1 and status()['acknowledged']==101
 ''')
 
+
+
+    def test_http_wait_does_not_hold_sqlite_write_lock(self):
+        self.case(r'''
+sync.collect();add(102);sync.collect()
+def post(*args):
+    with closing(sqlite3.connect(STATE_DIR/'normal-delivery.sqlite',timeout=1)) as db:
+        db.execute("INSERT OR REPLACE INTO meta VALUES('probe','concurrent write')")
+        db.commit()
+    return True
+assert sender.send_once(post,now=10000)['sent']
+assert status()['pending']==0
+''')
+
+    def test_sender_lock_blocks_nested_sender_without_http(self):
+        self.case(r'''
+sync.collect();add(102);sync.collect()
+calls=[]
+def post(*args):
+    try:sender.send_once(lambda *a:calls.append(a) or True,now=10000)
+    except DeliveryError as e:assert str(e)=='sender_already_running'
+    else:raise AssertionError('second sender was not blocked')
+    return True
+assert sender.send_once(post,now=10000)['sent']
+assert not calls and status()['pending']==0
+''')
+
+    def test_frozen_delivery_changed_during_http_is_not_acked(self):
+        self.case(r'''
+sync.collect();add(102);sync.collect()
+def post(*args):
+    with closing(sqlite3.connect(STATE_DIR/'normal-delivery.sqlite')) as db:
+        db.execute("UPDATE delivery SET attempts=attempts+1 WHERE singleton=1")
+        db.commit()
+    return True
+try:sender.send_once(post,now=10000)
+except DeliveryError as e:assert str(e)=='delivery_changed_during_http'
+else:raise AssertionError('concurrent mutation was acknowledged')
+assert status()['pending']==1 and status()['frozen']
+''')
+
+    def test_sender_lock_file_is_private_regular_file(self):
+        self.case(r'''
+import stat
+sync.collect();add(102);sync.collect()
+assert sender.send_once(lambda *args:True,now=10000)['sent']
+path=STATE_DIR/'normal-sender.lock'
+info=path.stat()
+assert stat.S_ISREG(info.st_mode)
+assert info.st_nlink==1
+if os.name!='nt':assert stat.S_IMODE(info.st_mode)==0o600
+''')
+
+    def test_collector_can_add_new_messages_during_http(self):
+        self.case(r'''
+sync.collect();add(102);sync.collect()
+add(103,'arrived before HTTP but not yet collected')
+seen=[]
+def post(*args):
+    seen.append(sync.collect())
+    return True
+result=sender.send_once(post,now=10000)
+assert result['sent'], (result,seen)
+assert seen[0]['pending']==2,seen
+assert status()['pending']==1 and status()['acknowledged']==102,status()
+''')
 
 
 if __name__ == '__main__':
