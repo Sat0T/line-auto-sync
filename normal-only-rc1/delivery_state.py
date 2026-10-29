@@ -46,11 +46,47 @@ def validate_existing(database):
         expected = {schema_signature(sql) for sql in SCHEMA}
         if {schema_signature(row[0] or '') for row in definitions} != expected:
             raise DeliveryError('unsupported_or_corrupt_delivery_schema')
+        validate_metadata(with_database)
     except sqlite3.DatabaseError:
         raise DeliveryError('unreadable_delivery_database') from None
     finally:
         if with_database is not None:
             with_database.close()
+
+
+def validate_metadata(database):
+    """Check small cursor/binding metadata without scanning the message queue."""
+    meta = dict(database.execute('SELECT key,value FROM meta'))
+    if not meta:
+        if (database.execute('SELECT 1 FROM messages LIMIT 1').fetchone() or
+                database.execute('SELECT 1 FROM delivery LIMIT 1').fetchone()):
+            raise DeliveryError('corrupt_delivery_metadata')
+        return  # A committed, not-yet-collected new database is legitimate.
+    required = {'identity', 'initial_baseline', 'acked', 'collected'}
+    if not required.issubset(meta):
+        raise DeliveryError('corrupt_delivery_metadata')
+    identity = meta['identity']
+    if not isinstance(identity, str) or not re.fullmatch('[0-9a-f]{64}', identity):
+        raise DeliveryError('corrupt_delivery_metadata')
+    cursors = {}
+    for key in ('initial_baseline', 'acked', 'collected'):
+        value = meta[key]
+        if (not isinstance(value, str) or not re.fullmatch('[0-9]{1,19}', value) or
+                int(value) > 9223372036854775807):
+            raise DeliveryError('corrupt_delivery_metadata')
+        cursors[key] = int(value)
+    if (cursors['collected'] < cursors['initial_baseline'] or
+            cursors['acked'] < cursors['initial_baseline']):
+        raise DeliveryError('corrupt_delivery_metadata')
+    # Legacy import can contain a queued PK above collected; do not impose
+    # acked <= collected, or reinterpret old CSV/ACK positions here.
+    if 'success_at' in meta:
+        try:
+            clock = float(meta['success_at'])
+            if not math.isfinite(clock) or clock < 0:
+                raise ValueError()
+        except (ValueError, TypeError, OverflowError):
+            raise DeliveryError('corrupt_delivery_metadata') from None
 
 
 class DeliveryError(RuntimeError):

@@ -552,6 +552,67 @@ except DeliveryError as e:assert str(e)=='foreign_or_incomplete_delivery_databas
 else:raise AssertionError('interrupted setup was silently reset')
 ''')
 
+    def test_missing_cursor_or_binding_never_reinitializes_pending_queue(self):
+        self.case(r'''
+sync.collect();add(102);sync.collect()
+assert sender.send_once(lambda *args:False,now=10000)['error']=='delivery_unconfirmed'
+path=STATE_DIR/'normal-delivery.sqlite'
+calls=[]
+for key in ('identity','initial_baseline','acked','collected'):
+    with closing(sqlite3.connect(path)) as db:
+        value=db.execute('SELECT value FROM meta WHERE key=?',(key,)).fetchone()[0]
+        db.execute('DELETE FROM meta WHERE key=?',(key,));db.commit()
+    for operation in (sync.collect, lambda:sender.send_once(
+            lambda *args:calls.append(args) or True,now=10060)):
+        try:operation()
+        except DeliveryError as e:assert str(e)=='corrupt_delivery_metadata'
+        else:raise AssertionError('incomplete metadata accepted')
+    with closing(sqlite3.connect(path)) as db:
+        assert not db.execute('SELECT 1 FROM meta WHERE key=?',(key,)).fetchone()
+        assert db.execute('SELECT acked FROM messages WHERE pk=102').fetchone()[0]==0
+        assert db.execute('SELECT COUNT(*) FROM delivery').fetchone()[0]==1
+        db.execute('INSERT INTO meta VALUES(?,?)',(key,value));db.commit()
+assert not calls and status()['pending']==1 and status()['frozen']
+''')
+
+    def test_empty_metadata_with_retained_rows_is_not_a_new_database(self):
+        self.case(r'''
+sync.collect();add(102);sync.collect()
+path=STATE_DIR/'normal-delivery.sqlite'
+with closing(sqlite3.connect(path)) as db:
+    db.execute('DELETE FROM meta');db.commit()
+try:sync.collect()
+except DeliveryError as e:assert str(e)=='corrupt_delivery_metadata'
+else:raise AssertionError('populated queue treated as uninitialized')
+with closing(sqlite3.connect(path)) as db:
+    assert db.execute('SELECT COUNT(*) FROM meta').fetchone()[0]==0
+    assert db.execute('SELECT acked FROM messages WHERE pk=102').fetchone()[0]==0
+''')
+
+    def test_invalid_metadata_values_stop_without_advancing_or_http(self):
+        self.case(r'''
+sync.collect();add(102);sync.collect()
+path=STATE_DIR/'normal-delivery.sqlite'
+calls=[]
+for key,value in (('identity','invalid'),('collected','102.5'),
+                  ('collected','-1'),('collected','100'),
+                  ('acked','100'),('acked','9223372036854775808'),
+                  ('success_at','nan'),('success_at','inf'),('success_at','-1')):
+    with closing(sqlite3.connect(path)) as db:
+        old=db.execute('SELECT value FROM meta WHERE key=?',(key,)).fetchone()
+        db.execute('INSERT OR REPLACE INTO meta VALUES(?,?)',(key,value));db.commit()
+    try:sender.send_once(lambda *args:calls.append(args) or True,now=10000)
+    except DeliveryError as e:assert str(e)=='corrupt_delivery_metadata'
+    else:raise AssertionError('invalid cursor/binding/clock accepted')
+    with closing(sqlite3.connect(path)) as db:
+        assert db.execute('SELECT value FROM meta WHERE key=?',(key,)).fetchone()[0]==value
+        if old:db.execute('UPDATE meta SET value=? WHERE key=?',(old[0],key))
+        else:db.execute('DELETE FROM meta WHERE key=?',(key,))
+        db.commit()
+assert not calls and status()['collected']==102 and status()['acknowledged']==101
+assert status()['pending']==1
+''')
+
     def test_parseable_but_wrong_frozen_ids_never_ack_unrelated_message(self):
         self.case(r'''
 sync.collect();add(102,'synthetic source message');sync.collect()
