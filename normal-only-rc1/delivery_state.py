@@ -11,6 +11,82 @@ import sqlite3
 from checkpoint import scan_low
 
 APPLICATION_ID = 0x4C414E33
+SCHEMA = (
+    'CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT NOT NULL)',
+    '''CREATE TABLE messages(
+        pk INTEGER PRIMARY KEY,raw TEXT NOT NULL,hash TEXT NOT NULL,
+        acked INTEGER NOT NULL DEFAULT 0 CHECK(acked IN (0,1)))''',
+    '''CREATE TABLE delivery(
+        singleton INTEGER PRIMARY KEY CHECK(singleton=1),body TEXT NOT NULL,
+        ids TEXT NOT NULL,batch_id TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt REAL NOT NULL DEFAULT 0)''',
+)
+
+
+def schema_signature(statement):
+    # SQLite removes IF NOT EXISTS from sqlite_master on some supported builds.
+    return re.sub(r'\s+', '', statement).lower().replace('ifnotexists', '').rstrip(';')
+
+
+def validate_existing(database):
+    """Read-only structural check; never recreate missing queue tables.
+
+    This is not a full page/content audit or an authenticated anti-tamper check.
+    Unknown layouts require an explicit migration, not CREATE IF NOT EXISTS.
+    """
+    with_database = None
+    try:
+        with_database = sqlite3.connect(database.resolve().as_uri() + '?mode=ro', uri=True)
+        with_database.execute('PRAGMA query_only=ON')
+        with_database.execute('BEGIN')
+        if with_database.execute('PRAGMA application_id').fetchone()[0] != APPLICATION_ID:
+            raise DeliveryError('foreign_or_incomplete_delivery_database')
+        definitions = with_database.execute(
+            "SELECT sql FROM sqlite_master WHERE type IN ('table','view','trigger')").fetchall()
+        expected = {schema_signature(sql) for sql in SCHEMA}
+        if {schema_signature(row[0] or '') for row in definitions} != expected:
+            raise DeliveryError('unsupported_or_corrupt_delivery_schema')
+        validate_metadata(with_database)
+    except sqlite3.DatabaseError:
+        raise DeliveryError('unreadable_delivery_database') from None
+    finally:
+        if with_database is not None:
+            with_database.close()
+
+
+def validate_metadata(database):
+    """Check small cursor/binding metadata without scanning the message queue."""
+    meta = dict(database.execute('SELECT key,value FROM meta'))
+    if not meta:
+        if (database.execute('SELECT 1 FROM messages LIMIT 1').fetchone() or
+                database.execute('SELECT 1 FROM delivery LIMIT 1').fetchone()):
+            raise DeliveryError('corrupt_delivery_metadata')
+        return  # A committed, not-yet-collected new database is legitimate.
+    required = {'identity', 'initial_baseline', 'acked', 'collected'}
+    if not required.issubset(meta):
+        raise DeliveryError('corrupt_delivery_metadata')
+    identity = meta['identity']
+    if not isinstance(identity, str) or not re.fullmatch('[0-9a-f]{64}', identity):
+        raise DeliveryError('corrupt_delivery_metadata')
+    cursors = {}
+    for key in ('initial_baseline', 'acked', 'collected'):
+        value = meta[key]
+        if (not isinstance(value, str) or not re.fullmatch('[0-9]{1,19}', value) or
+                int(value) > 9223372036854775807):
+            raise DeliveryError('corrupt_delivery_metadata')
+        cursors[key] = int(value)
+    if (cursors['collected'] < cursors['initial_baseline'] or
+            cursors['acked'] < cursors['initial_baseline']):
+        raise DeliveryError('corrupt_delivery_metadata')
+    # Legacy import can contain a queued PK above collected; do not impose
+    # acked <= collected, or reinterpret old CSV/ACK positions here.
+    if 'success_at' in meta:
+        try:
+            clock = float(meta['success_at'])
+            if not math.isfinite(clock) or clock < 0:
+                raise ValueError()
+        except (ValueError, TypeError, OverflowError):
+            raise DeliveryError('corrupt_delivery_metadata') from None
 
 
 class DeliveryError(RuntimeError):
@@ -46,12 +122,7 @@ class DeliveryState:
             os.close(fd)
             created = True
         except FileExistsError:
-            check = sqlite3.connect(self.path.resolve().as_uri() + "?mode=ro", uri=True)
-            try:
-                if check.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID:
-                    raise DeliveryError("foreign_or_incomplete_delivery_database")
-            finally:
-                check.close()
+            validate_existing(self.path)
         try:
             self.db = sqlite3.connect(str(self.path), timeout=5, isolation_level=None)
             self.db.row_factory = sqlite3.Row
@@ -59,18 +130,11 @@ class DeliveryState:
                 os.chmod(self.path, 0o600)
             self.db.execute("PRAGMA journal_mode=WAL")
             self.db.execute("PRAGMA synchronous=FULL")
-            self.db.executescript("""
-                CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
-                CREATE TABLE IF NOT EXISTS messages(
-                    pk INTEGER PRIMARY KEY,raw TEXT NOT NULL,hash TEXT NOT NULL,
-                    acked INTEGER NOT NULL DEFAULT 0 CHECK(acked IN (0,1)));
-                CREATE TABLE IF NOT EXISTS delivery(
-                    singleton INTEGER PRIMARY KEY CHECK(singleton=1),body TEXT NOT NULL,
-                    ids TEXT NOT NULL,batch_id TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,
-                    next_attempt REAL NOT NULL DEFAULT 0);
-            """)
             if created:
-                self.db.execute("PRAGMA application_id=" + str(APPLICATION_ID))
+                with self.transaction():
+                    for statement in SCHEMA:
+                        self.db.execute(statement)
+                    self.db.execute("PRAGMA application_id=" + str(APPLICATION_ID))
         except BaseException:
             self.close()
             raise

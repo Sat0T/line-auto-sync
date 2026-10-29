@@ -17,7 +17,7 @@ has been granted. These tasks require independent sign-off.
 ## 2. Offline reliability
 - [x] PR #5: persisted queue + frozen retry/ACK synthetic regression coverage.
 - [x] PR #5: Windows/Linux x Python 3.9/3.12 CI succeeded at reviewed SHA.
-- [ ] PR #6: additional config/cache/redirect/receiver model tests pass in CI.
+- [x] PR #6: additional config/cache/redirect/receiver model tests passed in CI (30 synthetic cases; run 40720726909).
 - [ ] Independent code review of both PRs (not just passing CI).
 - [ ] Test large backlog, timeout/write locks, capacity and corrupted state.
 
@@ -69,7 +69,20 @@ this review. No public binary publication is authorized.
 - [x] 受信モデルの「PKは必ず昇順」という誤った制限を除去し、タイムスタンプ順によるPK逆転のテストを追加。
 - [x] 凍結後のトークン更新を送信時に反映する実装・回帰テストを追加。
 - [x] SQLite REALのタイムスタンプをdoctor/collect双方で拒否し、カーソル非進行の回帰テストを追加。
-- [ ] Draft PR #7の最新コミットCIと独立コードレビューを確認し、必要な承認後のみPR #6へ統合。
+- [x] Draft PR #7の確認済みHEAD `fac5f22` は37件/5ジョブ成功（run 40723686017）。
+- [ ] Draft PR #7の独立コードレビューと本人承認後のみPR #6へ統合。CI成功だけで統合しない。
 - [ ] 本番GAS・rootless実機・権利/プライバシーは依然未検証。現段階で**配布禁止**。
 
 根拠・未解決事項は `docs/CHAT_PREMERGE_REVIEW_20261029.md` を参照。
+
+## 2026-10-29 Work追補：Draft PR #8の状態DB防御
+
+- [x] 不完全な既存スキーマをCREATEで再作成せず、読み取り専用検査で停止する実装。
+- [x] 新規DBの3テーブルとapplication_idを同一トランザクションで初期化。
+- [x] 必須カーソル/binding欠落・不正値を検出し、既存行を新規扱いして取得位置を進めない実装。
+- [x] ローカルの合成テスト45件PASS（PR #7の37件＋追加8件）。隔離スナップショットの復元を含む。
+- [x] PR #8の最終コード `5eefe6a` は45件/5ジョブ成功（run 40843275930）。後続の文書更新CIはPR最新Checksを確認。
+- [ ] PR #8の独立レビュー・本人承認。テストの成功と配布承認は別。
+- [ ] 全ページ/全内容の整合診断、HTTP中のロック、容量、長文、編集/後完成メッセージ、実機復旧は未解決。
+
+PR #8はPR #7への追加Draft。本番環境に無変更、配布禁止を維持する。空の全状態の消失を外部証跡なしで検出する仕組みや同一権限攻撃者への暗号学的保護は提供していない。
