@@ -3,6 +3,7 @@ from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
+import stat
 import math
 import sys
 import time
@@ -23,9 +24,18 @@ def sender_lock(directory):
     flags = os.O_RDWR | os.O_CREAT
     if hasattr(os, 'O_NOFOLLOW'):
         flags |= os.O_NOFOLLOW
-    fd = os.open(str(path), flags, 0o600)
+    try:
+        fd = os.open(str(path), flags, 0o600)
+    except OSError as exc:
+        raise DeliveryError('unsafe_sender_lock') from exc
     locked = False
     try:
+        info = os.fstat(fd)
+        # Reject device nodes, directories, and hardlinks before touching bytes.
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise DeliveryError('unsafe_sender_lock')
+        if os.name != 'nt':
+            os.fchmod(fd, 0o600)
         if os.name == 'nt':
             import msvcrt
             if os.fstat(fd).st_size == 0:
