@@ -1,3 +1,20 @@
+# 作業終了・次回再開点 — 2026-11-04 / オーナーのPC終了に合わせて停止
+
+この節を以下の途中記録より優先。オーナーが「PCを閉じるので終了・Chatへの引き継ぎ」を依頼したため、新しい実装/クラウド操作は停止した。
+
+1. 最後に完了: 既存Gmail→ChatGPTを使うMVP受信/結果保存を実装し、GitHub保存・CI成功。新規独立GASへCore.gs+App.gsとmanifestをUIで保存し、コードがローカルと一致することを確認。LAS_SOURCE=MVP_DEMOを設定。本人からsetupMvpの「承認・実行完了」の回答を受領したが、こちらで初期化後の実ストレージ状態はまだ読戻し確認していない。
+2. ブランチ/PR: feat/mvp-task-pipeline-20261104 / Draft PR #10 https://github.com/Sat0T/line-auto-sync/pull/10 。基点はPR #9 audit/http-lock-contention-design-20261030 の69b0a2b。最終コードSHA cdfc26483a048f720e3c8e2dd97c772332acef23。今回の終了文書コミットはコード変更なし、最新SHAは本書履歴から取得する。
+3. 追加/変更: cloud/gas/Core.gs、App.gs、appsscript.json、README_JA.md、examples/synthetic_result.json、tools/demo_mvp.py、tools/mvp_offline_runtime.js、tests/test_mvp.js、CI、本書。collector/sender本体の書換えはなし。
+4. 検証: Node統合4件PASS。実RC3コードを使う合成E2Eで新着4件→応答喪失後2回送信→転送相当1通→項目2件(open/needs_review)→結果再取込追加0。AI部分は事前作成したChatGPT判定fixtureで、実際の定期ChatGPT呼出しではない。最終コードのCI全体success: https://github.com/Sat0T/line-auto-sync/actions/runs/41807616599 。既存50件・private build・新規MVPジョブ・履歴監査はこのCIに含まれる。終了文書更新のCIは未確認、コードCIと混同しない。
+5. 未解決: 実Google受信/メール/タスクSheet往復、既存定期ChatGPTの新source取込と結果メール保存、iPhone配置/起動、本人承認後の実LINE読取/外部送信。新GASは未デプロイ（公開HTTPS受信URL未作成）、mvpMaintenanceトリガーの作成も未実施。既存AIが通知だけでJSON結果を書かない場合はそこがブロッカー。Drive/Sheets/Gmailをまたぐexactly-onceは保証せず、曖昧なメール送信は保留する。
+6. 実装途中/再開位置: ソースとオフライン経路は保存済み。新GASコードはクラウドにあるが、合成seed関数や実合成送信はまだ追加/実行していない。iPhone用の作業バンドル・自動起動ループ/手順の完成は未実施。dist/mvp-demoにローカルの合成report.json/tasks.json/tasks.mdと承認画面画像がある。配布/公開しない。新GASの個別プロジェクトURLはこの公開文書へ転載せず、本人チャット/ブラウザーから参照する。
+7. 本番影響: 個人iPad/実LINE/本番GAS/既存通知/カレンダー/個人タスク台帳は無変更。作成したのは独立のMVPプロジェクト。本人操作によりその新プロジェクトの権限承認/初期化が行われたとの報告のみ。本番への導入/PRマージ/バイナリ配布/実LINE外部送信はなし。
+8. 次の最優先: 新GASのsetup結果を秘密値を出さず確認→合成データを実Gmailへ送る→既存ChatGPTの実解析/結果メール保存→mvpMaintenanceで一覧保存を検証。次にiPhoneの設定/起動手順を仕上げる。周辺堅牢化を増やすより、未接続経路をつなぐMVP優先を維持。
+9. 本人に必要: 実機導入と実LINE読取/外部送信の明示承認。必要なら新GASのウェブアプリ公開/デプロイ操作、既存ChatGPTへの変更が不可欠な場合の具体的差分承認。APIキー不要。既存通知の無断変更・重複タスク作成は禁止。
+10. 次セッション指示: PR #10の本節、最新HEAD/CI/利用枠を確認して最初に本書を保存。追加のOAuth設定をやり直す前に現在状態を確認する。オフラインfixture成功を実AI成功に見せず、Google・ChatGPT・iPhoneの未検証部分から継続する。終了は重要変更ごとに保存し、30/20/10%の利用枠ルールを守る。
+
+---
+
 # 最新実装チェックポイント — 2026-11-04 / Gmail経由MVP
 
 1. 完了: 既存Gmail→ChatGPTを再利用する本人回答を受領。cloud/gas/Core.gsとApp.gsを新規実装し、既存RC3の収集/再送→GASの実エントリポイント（Googleサービスだけダブル）→固定AI結果→タスクSheet保存を接続した。
