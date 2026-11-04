@@ -1,0 +1,28 @@
+{
+  "kind": "line_task_result",
+  "status": "extraction_complete",
+  "source": "MVP_DEMO",
+  "processedMessageIDs": ["MVP_DEMO:102", "MVP_DEMO:103", "MVP_DEMO:104", "MVP_DEMO:105"],
+  "items": [
+    {
+      "item_id": "MVP_DEMO:102",
+      "kind": "task",
+      "title": "参加フォームへ回答する",
+      "certainty": "confirmed",
+      "applies_to_user": true,
+      "due": "2026-11-06T17:00:00+09:00",
+      "evidence_ids": ["MVP_DEMO:102"],
+      "uncertainty": ""
+    },
+    {
+      "item_id": "MVP_DEMO:103",
+      "kind": "event",
+      "title": "11月8日のカフェ案（参加・時刻未確定）",
+      "certainty": "candidate",
+      "applies_to_user": false,
+      "due": null,
+      "evidence_ids": ["MVP_DEMO:103"],
+      "uncertainty": "仮定の提案。参加と時刻が確定していない。"
+    }
+  ]
+}
