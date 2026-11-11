@@ -1,3 +1,14 @@
+# 実接続の再開点 — 2026-11-11
+
+- Draft PR #10の前回最終コミット dc0a3fc と [CI成功](https://github.com/Sat0T/line-auto-sync/actions/runs/41808651851) を確認した。
+- 独立GASで setupMvp を選んで実行したところ「承認が必要です」。前回の本人完了報告に対し、今回はGoogleの承認待ちを実画面で確認。スコープ付与は本人へ依頼済み。初期化と実送信は未確認。
+- 個人Gmailに直近7日以内の既存の本人発・本人宛LINE-TASK-RESULTが存在。既存の毎時「要対応メール通知」を閲覧し、許可sourceが既存3種のみでMVP_DEMOが除外されることを確認。既存設定は保存していない。
+- cloud/gas/LiveSmoke.gs を追加。独立GASでのみ、固定の架空1件 MVP_DEMO:20261111001 を通常のdoPostへ渡し、受信状態と配送状態を出す。同じ内容を再実行できる。Node既存4テスト成功。新しい関数は実GASへ未反映・未実行。
+- 既存通知には上の架空1件だけを例外処理し、自分宛ての結果JSONだけを保存する追記を本人に確認中。通常の通知、カレンダー、本番、定期頻度を変更しない。承認前に設定を保存しない。
+- Google承認後にLiveSmokeを独立GASへ追加し、Gmail到着を確認。既存通知の限定変更承認後にその1件のAI結果を確認し、mvpMaintenanceからSpreadsheetの読戻しまで進める。実端末・実LINE・公開デプロイは別工程。最新SHAは本書の履歴参照。
+
+---
+
 # 再開 — 2026-11-11
 
 Draft PR #10の前回HEAD dc0a3fc と [CI成功](https://github.com/Sat0T/line-auto-sync/actions/runs/41808651851) を確認。独立GASの初期化を確認し、合成データで実Gmail、既存ChatGPT、Spreadsheetの順に接続を検証する。既存通知・本番は維持する。
