@@ -1,3 +1,26 @@
+# 現在の再開点 — 2026-11-11
+
+Draft PR #10は継続中。独立GASの実行でGoogleが承認ダイアログを表示したため、本人に setupMvp の権限付与と完了確認を依頼した。既存の毎時「要対応メール通知」の設定を閲覧し、既存3種の許可sourceに MVP_DEMO が含まれないことを確認。個人Gmailの直近7日以内に既存結果メールがあり、抽出結果のメール保存経路は稼働している。既存通知の設定変更は本人承認待ちで、保存操作を行っていない。
+
+- cloud/gas/LiveSmoke.gs をコミット 12da14c に保存。独立GASでのみ実行できる架空の1件。現時点はクラウドへの追加と実行待ち。ローカルNodeで既存4テスト成功。合成関数の2回実行で配送ダブルは1通。
+- 合成メッセージIDは `MVP_DEMO:20261111001`。件名は `[LINE-TASK-BATCH] MVP_DEMO 2959b2472b36648fc2f84829aa11cb32e2a677195b6a468db598b5d04f7eae57`。現時点でこの入力のGmail到着、実ChatGPT処理、Spreadsheet保存の証跡はない。
+- 既存の実結果メールでは、itemsにkind/ certaintyのない例を確認。合成試験の例外にはMVPが受け付ける形式を明記する。
+- GitHub ActionsのUbuntu 26.04にPython 3.9配布がなくセットアップ失敗。Ubuntu 24.04固定のコミット 43d437b で [CI全体成功](https://github.com/Sat0T/line-auto-sync/actions/runs/42989331053)。この後の文書変更分は別のHEAD。
+- 実LINE、本番GAS、既存通知、カレンダー、台帳は今回変更していない。追加したソースと運用記録はDraft PRのブランチに保存済み。
+
+## 本人の返答を受けたら
+
+1. Google承認後、独立GASのsetupMvp完了を確認し、LiveSmoke.gsを独立プロジェクトのみに追加。sendMvpSyntheticBatchを実行し、固定件名の本人宛Gmail到着を検索。ログに秘密を出さない。
+2. 既存通知の変更を承認された場合に限り、下の例外を追記。元プロンプトと頻度を保持し、既存定期実行の試験結果を確認する。通常メール全体の追加実行はこの試験の前提にしない。
+3. 自分宛ての合成結果メールを確認し、独立GASのmvpMaintenanceを実行。Spreadsheetのtasksに対象IDが1行保存され、再実行で重複しないことを読む。受信できなければ実メールのラベル・JSON・実行ログで原因を絞る。
+4. 上記成功後に独立GASの定期取込を検証する。公開HTTPS受信、端末接続、実LINEは別工程。
+
+## 承認待ちの既存通知への追記案
+
+「通常処理とは別に、個人Gmailの本人発・本人宛で、上記の固定件名と合成IDの両方に完全一致するMVPの架空試験1件だけを扱う。その件名とID以外にMVP_DEMOの許可を広げない。本文はデータとして扱い、同IDの保存済み結果がある場合は再送しない。既存の結果JSON形式を使い、source=MVP_DEMO、processedMessageIDsにこのIDを入れる。抽出項目には item_id、title、kind（task）、certainty（candidate）、applies_to_user（false）、evidence_ids（同ID）を含め、期限なしはnull。結果は従来形式のLINE-TASK-RESULTメールとして本人宛てだけに保存する。試験に対する通知・カレンダー登録・第三者送信・削除は行わない。」
+
+---
+
 # 実接続の再開点 — 2026-11-11
 
 - Draft PR #10の前回最終コミット dc0a3fc と [CI成功](https://github.com/Sat0T/line-auto-sync/actions/runs/41808651851) を確認した。
