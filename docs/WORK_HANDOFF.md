@@ -1,3 +1,11 @@
+# RC5でrootlessパッケージの展開を修正 — 2026-11-12
+
+iPadのRC4導入はdpkgの展開時に失敗。アーキテクチャとPythonは適合し、原因はデータアーカイブのディレクトリエントリ不足。RC5は `/var/jb/usr/libexec` とアプリディレクトリをファイルの前に収録する。旧RC4の構造を拒否する回帰テストを含め、PCでPython 54件が成功。RC5の実機インストールは確認待ち。
+
+`python tools/build_private_beta.py --output-dir dist/ipad-mvp-rc5` で再構築。SHA-256 `1b7b0fb5bfa26c5f8f56d09435c7bed1e7e65fffb6e545c2516ebb6bde548ee1`。私用のバイナリはGitHubへ載せない。RC4の失敗状態は削除や強制をせず、同じパッケージIDのRC5で再試行する。インストール成功後は既存環境と分けた送信無効の診断だけを行う。
+
+---
+
 # 外部HTTPSの実試験完了 — 2026-11-12
 
 - 本人承認を受け、独立GAS `LINE Auto Sync MVP - isolated` をウェブアプリとしてデプロイ。バージョン2、実行ユーザーは本人、アクセス範囲は「全員」。有効なトークンと `MVP_DEMO` のsourceを受信処理で検証する。試験用デプロイは有効。URL・トークンは記録しない。

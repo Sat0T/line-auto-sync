@@ -10,7 +10,7 @@
 
 ## 私用パッケージの確認
 
-`python tools/build_private_beta.py --output-dir dist/ipad-mvp-rc4` で現行ソースから構築する。付属のRC4_BUILD_REPORT.jsonでバージョン、SHA-256とパッケージ内の許可ファイル一覧の検証結果を確認する。既存デバイスへの導入は、旧環境を保全して本人が承認した後。インストール先はrootless用の `/var/jb`。Python 3.9以上とsqlite3、sslが必要。mobileユーザーで動かす。
+`python tools/build_private_beta.py --output-dir dist/ipad-mvp-rc5` で現行ソースから構築する。付属のRC5_BUILD_REPORT.jsonでSHA-256と内容の検証結果を確認する。RC4は新規端末で展開に必要なディレクトリが不足していたため、RC5を使う。RC4が今回の失敗で半端な状態なら、同一パッケージのRC5をそのままインストールし、パージや強制オプションは使わない。インストール先はrootless用の `/var/jb`。Python 3.9以上とsqlite3、sslが必要。mobileユーザーで動かす。
 
 ## 復旧確認と新sourceの準備
 

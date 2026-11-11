@@ -20,19 +20,20 @@ MODULES = (
     "presentation.py", "recovery.py", "resolver.py", "runner.py", "runtime_paths.py", "sender.py",
     "setup_normal.py", "sync.py", "transport.py",
 )
-PACKAGE_NAME = "line-auto-sync_0.1.2-rc4_PRIVATE.deb"
+PACKAGE_NAME = "line-auto-sync_0.1.2-rc5_PRIVATE.deb"
 APPROOT = "./var/jb/usr/libexec/line-auto-sync"
 LAUNCHER = "./var/jb/usr/bin/line-auto-sync"
+DATA_DIRECTORIES = ("./var/jb/usr/libexec", APPROOT)
 CONTROL = """Package: com.sat0t.line-auto-sync.private
 Name: LINE Auto Sync Private Test Candidate
-Version: 0.1.2~rc4
+Version: 0.1.2~rc5
 Architecture: iphoneos-arm64
 Depends: firmware (>= 15.0)
 Maintainer: Sat0T
 Section: Utilities
 Description: Unverified rootless normal LINE test candidate; manual foreground worker
 """
-README = """LINE AUTO SYNC PRIVATE RC4 / NOT APPROVED FOR DISTRIBUTION
+README = """LINE AUTO SYNC PRIVATE RC5 / NOT APPROVED FOR DISTRIBUTION
 Generated reproducibly from reviewed source, not previous RC1/RC2 binaries.
 Rootless /var/jb; manual Python 3; no automatic startup or Python bundled.
 Commands: line-auto-sync init, configure, doctor, enable, run, status, disable.
@@ -96,10 +97,15 @@ def get_payloads():
     entries[LAUNCHER] = (LAUNCHER_TEXT.encode("utf-8"), 0o755)
     return entries
 
-def make_tar(entries):
+def make_tar(entries, directories=()):
     output = io.BytesIO()
     with gzip.GzipFile(fileobj=output, mode="wb", filename="", mtime=0, compresslevel=9) as gz:
         with tarfile.open(fileobj=gz, mode="w", format=tarfile.USTAR_FORMAT) as tar:
+            for directory in directories:
+                info = tarfile.TarInfo(directory)
+                info.type, info.mode = tarfile.DIRTYPE, 0o755
+                info.uname = info.gname = "root"
+                tar.addfile(info)
             for name, (data, mode) in sorted(entries.items()):
                 info = tarfile.TarInfo(name)
                 info.size, info.mode = len(data), mode
@@ -142,11 +148,18 @@ def verify(archive, expected):
         if tar.extractfile(controls[0]).read() != CONTROL.encode():
             stop('Package control mismatch')
     with tarfile.open(fileobj=io.BytesIO(members["data.tar.gz"]), mode="r:gz") as tar:
-        actual = {}
+        actual, directories = {}, []
         for info in tar:
+            if info.isdir():
+                if actual or info.mode != 0o755:
+                    stop("Unexpected directory order or mode")
+                directories.append(info.name)
+                continue
             if not info.isfile() or info.name in actual:
                 stop("Unexpected data.tar entry")
             actual[info.name] = (tar.extractfile(info).read(), info.mode)
+        if tuple(directories) != DATA_DIRECTORIES:
+            stop("Missing or unexpected data.tar directories")
     if actual != expected:
         stop("Package does not match source payloads")
 
@@ -164,11 +177,11 @@ def main():
     archive = (b"!<arch>\n"
                + make_ar_member("debian-binary", b"2.0\n")
                + make_ar_member("control.tar.gz", make_tar({"./control": (CONTROL.encode(), 0o644)}))
-               + make_ar_member("data.tar.gz", make_tar(entries)))
+               + make_ar_member("data.tar.gz", make_tar(entries, DATA_DIRECTORIES)))
     verify(archive, entries)
     output_dir.mkdir(parents=True, exist_ok=True)
     target = output_dir / PACKAGE_NAME
-    report = output_dir / "RC4_BUILD_REPORT.json"
+    report = output_dir / "RC5_BUILD_REPORT.json"
     if target.exists() or target.is_symlink() or report.exists():
         stop("Refusing to overwrite existing build outputs")
     target.write_bytes(archive)
@@ -183,7 +196,7 @@ def main():
         "distribution": "PRIVATE ONLY — DO NOT REDISTRIBUTE",
     }
     report.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print("PRIVATE RC4 BUILD SUCCESS")
+    print("PRIVATE RC5 BUILD SUCCESS")
     print("SHA256:", sha)
     print("Build:", target)
     print("Report:", report)
