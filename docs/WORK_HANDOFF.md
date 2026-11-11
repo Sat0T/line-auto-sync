@@ -1,3 +1,11 @@
+# 実LINE新着の端末内収集を確認 — 2026-11-12
+
+RC5の診断キューを基準位置で初期化した時点は `pending: 0`。その後、本人から再収集結果 `pending: 8` を受領した。収集専用モードで、診断先は `example.invalid`。実LINEテキストが端末内のキューへ追加されたことを確認し、外部送信は行っていない。8件の診断キューは保全し、実接続の1件試験には再利用しない。名前・日時の実データ確認は専用sourceのプレビューで行う。
+
+次は本人承認後、独立GASの `LAS_SOURCE` を `MVP_IPAD_PILOT` に変更し、iPadに別の試験設定とキューを用意。停止したキューに1件だけあることを確認し、内容・送信先・sourceを承認するまで転送しない。ChatGPTの1件限定ルールも別途承認が必要。現時点で実LINEの外部配送・解析・保存、継続運転、障害復旧は未確認。単件プレビュー実装 `5f9e08c` の[CI](https://github.com/Sat0T/line-auto-sync/actions/runs/43068967482)は6ジョブ成功。
+
+---
+
 # 実機用sourceの試験準備 — 2026-11-12
 
 - 本人操作用のWindows通知音を対話セッションで1回再生。RC5の送信なし新着試験を案内済み。診断フォルダ、`example.invalid`、収集専用 `start` を使用。証跡は `pending`、`mode: collect`、停止後の `state: stopped`。iPadの画面で診断キュー初期化、`pending: 0`、`mode: collect`、`state: stopped`、`DISABLED` を確認。初回基準位置を保存済み。新着受信後、同じ診断タブで収集専用の `start` を再実行すれば、初回の処理で拾える。停止後の `pending` の返答待ち。
