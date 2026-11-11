@@ -147,6 +147,7 @@ else:
 assert not calls
 assert m.review(preview['approval_sha256'], post)['sent']
 assert len(calls) == 1 and status()['pending'] == 0
+assert json.loads(calls[0][2].splitlines()[0])['batch_id'] == preview['batch_id']
 add(103); add(104); sync.collect()
 try:
     m.review(post=post)

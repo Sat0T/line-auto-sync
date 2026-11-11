@@ -41,10 +41,12 @@ def prepare():
                 if not selection['lines']:
                     raise RuntimeError('message_not_deliverable')
                 body = legacy_names.finalize_body(''.join(selection['lines']))
-            records = presentation.decode_named(body.partition('\n')[2])
+            header, _, payload = body.partition('\n')
+            records = presentation.decode_named(payload)
             if len(records) != 1 or not records[0]['id'].startswith(config['source_id'] + ':'):
                 raise RuntimeError('unexpected_payload')
-            return records[0], fingerprint(config['transport']['endpoint'], body)
+            return {'approval_sha256': fingerprint(config['transport']['endpoint'], body),
+                    'batch_id': transport.strict_json(header)['batch_id'], 'record': records[0]}
     finally:
         queue.close()
         legacy_names.close()
@@ -52,10 +54,10 @@ def prepare():
 
 def review(approved=None, post=sender.post_legacy):
     with worker_lock():
-        record, expected = prepare()
+        preview = prepare()
         if approved is None:
-            return {'approval_sha256': expected, 'record': record}
-        if approved != expected:
+            return preview
+        if approved != preview['approval_sha256']:
             raise RuntimeError('approval_does_not_match')
 
         def guarded_post(endpoint, token, body, maxid):
