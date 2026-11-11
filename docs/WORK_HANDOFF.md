@@ -1,6 +1,6 @@
 # RC5でrootlessパッケージの展開を修正 — 2026-11-12
 
-iPadのRC4導入はdpkgの展開時に失敗。アーキテクチャとPythonは適合し、原因はデータアーカイブのディレクトリエントリ不足。RC5は `/var/jb/usr/libexec` とアプリディレクトリをファイルの前に収録する。旧RC4の構造を拒否する回帰テストを含め、PCでPython 54件が成功。RC5の実機インストールは確認待ち。
+iPadのRC4導入はdpkgの展開時に失敗。アーキテクチャとPythonは適合し、原因はデータアーカイブのディレクトリエントリ不足。RC5は `/var/jb/usr/libexec` とアプリディレクトリをファイルの前に収録する。旧RC4の構造を拒否する回帰テストを含め、PCでPython 54件が成功。iPadのNewTermでRC5のSHA-256一致、`Unpacking`、`Setting up` 完了を本人提供の画面で確認済み。次はmobileユーザーで新規診断フォルダを作り、同期無効のまま `init` と読み取り専用の `recovery-check` を実施する。実LINEの送信は未実施。
 
 `python tools/build_private_beta.py --output-dir dist/ipad-mvp-rc5` で再構築。SHA-256 `1b7b0fb5bfa26c5f8f56d09435c7bed1e7e65fffb6e545c2516ebb6bde548ee1`。私用のバイナリはGitHubへ載せない。RC4の失敗状態は削除や強制をせず、同じパッケージIDのRC5で再試行する。インストール成功後は既存環境と分けた送信無効の診断だけを行う。
 
