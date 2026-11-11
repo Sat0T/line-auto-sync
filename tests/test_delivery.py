@@ -125,6 +125,38 @@ assert status()['pending']==0
 assert sender.send_once(lambda *args: False,now=10001)['reason']=='hourly_gate'
 ''')
 
+    def test_one_message_review_guards_exact_payload_before_post(self):
+        self.case(r'''
+sys.path.insert(0, str(Path('tools').resolve()))
+import mvp_one_message as m
+sync.collect(); add(102); sync.collect()
+calls = []
+def post(*args):
+    calls.append(args)
+    return True
+preview = m.review(post=post)
+assert preview['record']['id'] == 'OFFLINE_TEST_SOURCE:102'
+assert preview['record']['time'].endswith('+09:00')
+assert not calls
+try:
+    m.review('wrong', post)
+except RuntimeError:
+    pass
+else:
+    raise AssertionError('mismatched approval accepted')
+assert not calls
+assert m.review(preview['approval_sha256'], post)['sent']
+assert len(calls) == 1 and status()['pending'] == 0
+add(103); add(104); sync.collect()
+try:
+    m.review(post=post)
+except RuntimeError as exc:
+    assert str(exc) == 'exactly_one_pending_message_required'
+else:
+    raise AssertionError('multi-message queue accepted')
+assert len(calls) == 1
+''')
+
     def test_timeout_new_arrival_and_retry_keep_identical_batch(self):
         self.case(r'''
 sync.collect();add(102);sync.collect();calls=[]

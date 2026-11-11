@@ -1,3 +1,12 @@
+# 実機新着試験の再開点 — 2026-11-12
+
+- Draft PR #10の前回HEAD `ab12388` の[CI](https://github.com/Sat0T/line-auto-sync/actions/runs/43067120464)は成功。RC5実機インストールと読み取り専用DB診断は完了。実LINEの収集結果は本人から未受領。元の診断NewTermで `example.invalid` の構成を使い、`enable` と収集専用 `start` で初回の `collected` を待ち、その後に新着を1件受信する。次周期後にCtrl+C、`status` と `worker-status` を確認し、`disable`。本文やDBパスは報告に含めない。すでに起動済みで離席する場合は停止を案内済み。
+- `tools/mvp_one_message.py` を追加。RC5のモジュールを使い、停止済みの専用キューに未送信がちょうど1件の場合のみ本文・名前・日時をiPad画面でプレビューする。送信操作は明示的な `--send-approved` と、送信先・実ペイロードに結び付けた一致するSHA-256が必要。本番への転送やiPadへのツール配置は未実施。既存キューには使わない。テスト `test_one_message_review_guards_exact_payload_before_post` は成功。合成1件の日時とID、プレビューの通信なし、承認値不一致と複数件拒否、模擬HTTPでの1件送信を確認。最新CIはPR Checks参照。
+- 次は新着試験の `pending` とモード・停止状態を受け取り、日時や表示名の不足は端末内で調べる。その後、診断キューは維持し、実機専用sourceと承認済みHTTPS先で別キューを作る。既存キューはsourceとURLに結合され、転用しない。独立GASの `LAS_SOURCE` の実機用設定と既存ChatGPTの限定ルールを承認前に提示し、Gmailの本人宛・固定source・試験IDを照合する。期限と要返信を含む合意済み新着1件で、独立GAS、Gmail、ChatGPT、tasks、同一結果の重複防止と完了保持を確認する。
+- 実LINEの外部送信、ChatGPT設定変更、重要なiPad設定は各段階で本人承認。Windows通知音は本人操作が必要になった時点で1回。就寝のため次の案内まで待機。既存GAS、ChatGPT、iPadの設定、台帳はPC作業から変更していない。新着自動取得、実データの配送・AI・タスク登録、常駐、障害復旧は未確認。合成試験の実績は再利用する。iPadの継続運転と停止・再開の実機検証は最後に進める。
+
+---
+
 # RC5でrootlessパッケージの展開を修正 — 2026-11-12
 
 iPadのRC4導入はdpkgの展開時に失敗。アーキテクチャとPythonは適合し、原因はデータアーカイブのディレクトリエントリ不足。RC5は `/var/jb/usr/libexec` とアプリディレクトリをファイルの前に収録する。旧RC4の構造を拒否する回帰テストを含め、PCでPython 54件が成功。iPadのNewTermでRC5のSHA-256一致、`Unpacking`、`Setting up` 完了を本人提供の画面で確認済み。同端末で同期無効のまま `init` と `recovery-check` を実施し、通常LINE DBの読み取り専用オープン・ZMESSAGEの必要列・時刻サンプルが合格。`Configuration enabled: False`、`queue_initialized: false`、`last_recorded: {}`、既存データの削除なしを確認。名前解決、新着収集、実LINE送信は未検証。
