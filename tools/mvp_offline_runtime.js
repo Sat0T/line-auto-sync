@@ -95,7 +95,7 @@ function createRuntime(saved) {
   return {state, context,
     bootstrap(source, token) {state.properties.LAS_SOURCE = source; state.properties.LAS_TOKEN = token; context.setupMvp();},
     receive(request) {return context.doPost({postData: {contents: JSON.stringify(request)}});},
-    addResult(value) {state.mails.push(makeMail(id('result'), '[LINE-TASK-RESULT] offline synthetic', JSON.stringify(value)));},
+    addResult(value) {state.mails.push(makeMail(id('result'), '[LINE-TASK-RESULT] ' + value.source + ' offline synthetic', JSON.stringify(value)));},
     maintenance() {return context.mvpMaintenance();},
     tasks() {
       const rows = state.books[state.properties.LAS_SHEET].sheets.tasks;

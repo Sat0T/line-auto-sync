@@ -102,8 +102,20 @@ function doPost(e) {
 }
 function doGet() { return ContentService.createTextOutput('LINE Auto Sync receiver. No private data is exposed here.'); }
 function lasPlain_(part) {
-  if (part.mimeType === 'text/plain' && part.body && part.body.data)
-    return Utilities.newBlob(Utilities.base64DecodeWebSafe(part.body.data)).getDataAsString('UTF-8');
+  if (part.mimeType === 'text/plain' && !part.filename && part.body && part.body.data) {
+    var data = part.body.data;
+    // Gmail Advanced Service returns byte arrays, whereas raw REST returns base64url.
+    var bytes = typeof data === 'string' ? Utilities.base64DecodeWebSafe(data) : Array.from(data);
+    var text = Utilities.newBlob(bytes).getDataAsString('UTF-8').replace(/\r\n/g, '\n');
+    var type = lasHeaders_({payload: part}, 'content-type')[0] || '';
+    if (!/format\s*=\s*"?flowed/i.test(type)) return text;
+    var delsp = /delsp\s*=\s*"?yes/i.test(type);
+    return text.split('\n').map(function (line) {
+      if (line.startsWith('>') || line === '-- ') throw new Error('quoted_machine_json');
+      if (line.startsWith(' ')) line = line.slice(1);
+      return line.endsWith(' ') ? (delsp ? line.slice(0, -1) : line) : line + '\n';
+    }).join('');
+  }
   for (var i = 0; i < (part.parts || []).length; i++) { var text = lasPlain_(part.parts[i]); if (text !== null) return text; }
   return null;
 }
@@ -118,13 +130,14 @@ function mvpMaintenance() {
       catch (_) { report.held++; }
     });
     var page, next;
+    var resultPrefix = '[LINE-TASK-RESULT] ' + cfg.source + ' ';
     // Read complete recent result pages up to a bounded MVP limit. No deletion.
     for (var n = 0; n < 3; n++) {
-      page = Gmail.Users.Messages.list('me', {q: 'in:sent from:me to:me subject:"[LINE-TASK-RESULT]" newer_than:30d -in:trash -in:spam', maxResults: 50, pageToken: next});
+      page = Gmail.Users.Messages.list('me', {q: 'in:sent from:me to:me subject:"' + resultPrefix.trimEnd() + '" newer_than:30d -in:trash -in:spam', maxResults: 50, pageToken: next});
       (page.messages || []).forEach(function (entry) {
         try {
           var m = Gmail.Users.Messages.get('me', entry.id, {format: 'full'});
-          if (!lasOwnMail_(m, cfg) || !/^\[LINE-TASK-RESULT\] /.test(lasHeaders_(m, 'subject')[0] || '')) return;
+          if (!lasOwnMail_(m, cfg) || !(lasHeaders_(m, 'subject')[0] || '').startsWith(resultPrefix)) return;
           var text = lasPlain_(m.payload);
           if (!text || Utilities.newBlob(text).getBytes().length > 180000) throw new Error('invalid_result_mail');
           var value = JSON.parse(text);

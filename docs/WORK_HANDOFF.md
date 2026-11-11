@@ -1,3 +1,9 @@
+# 実Gmail取込の互換修正 — 2026-11-11
+
+実Google上で独立GASの保存先を確認。batchesに合成1件がaccepted/sent、tasksにはヘッダーのみ。既存AIの実行待ち。mvpMaintenanceの事前実行では旧来の別source結果が多数invalidになったため、設定sourceを件名で限定し、Gmail Advanced Serviceのバイト配列とformat=flowedの本文に対応。ローカルNode 5件と合成デモ成功。独立GASエディターに反映済み。
+
+---
+
 # 実Gmailへの合成配送を確認 — 2026-11-11
 
 独立GASのsetupMvpが18:10 JSTに実行完了。独立プロジェクトのコードにLiveSmoke.gsを追加し、sendMvpSyntheticBatchを18:13 JSTに実行。accepted=true、mail_state=sent。個人Gmailに固定件名の本人発・本人宛メール1通を確認した。既存通知の承認済み例外による次回処理と結果メールを待ち、mvpMaintenanceでSpreadsheetへの保存・読戻しを確認する。公開ウェブアプリや実LINEは別工程。

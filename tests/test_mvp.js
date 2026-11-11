@@ -71,3 +71,18 @@ test('candidate stays pending, sender/chat come from evidence, sheet formulas ar
   runtime.context.enableMvpMaintenance(); runtime.context.enableMvpMaintenance();
   assert.deepEqual(runtime.state.triggers, ['mvpMaintenance']);
 });
+
+test('Gmail byte-array and flowed result body is decoded for the configured source', () => {
+  const {runtime, request, result} = fixture(); runtime.receive(request);
+  runtime.addResult(result);
+  const part = runtime.state.mails.at(-1).payload;
+  const flowed = JSON.stringify(result).replace('Submit synthetic form', 'Submit syn \r\n thetic form');
+  part.headers.push({name: 'Content-Type', value: 'text/plain; format=flowed; delsp=yes'});
+  part.body.data = [...Buffer.from(flowed, 'utf8')];
+  runtime.addResult({...result, source: 'OTHER'});
+  runtime.state.mails.at(-1).payload.body.data = [123];
+  const report = runtime.maintenance();
+  assert.equal(report.results, 1);
+  assert.equal(report.invalid, 0);
+  assert.equal(runtime.tasks()[0].title, 'Submit synthetic form');
+});
