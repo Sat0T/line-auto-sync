@@ -3,18 +3,18 @@ const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const {createRuntime} = require('../tools/mvp_offline_runtime');
 const SOURCE = 'MVP_DEMO', TOKEN = 'SYNTHETIC_MVP_TOKEN_NOT_A_REAL_SECRET_ONLY';
-function fixture(compact = false) {
-  const runtime = createRuntime(); runtime.bootstrap(SOURCE, TOKEN);
+function fixture(compact = false, source = SOURCE) {
+  const runtime = createRuntime(); runtime.bootstrap(source, TOKEN);
   const core = runtime.context.LasMvp, hash = runtime.context.lasHash_;
-  const r = {id: SOURCE + ':102', time: '2026-11-04T09:01:00+09:00', chat: 'Demo Group', sender: 'Demo User',
+  const r = {id: source + ':102', time: '2026-11-04T09:01:00+09:00', chat: 'Demo Group', sender: 'Demo User',
     text: 'Synthetic form request', refs: {message_pk: '102', chat_pk: '2', sender_pk: '1'}};
   const digest = hash(core.canonical(r) + '\n');
-  const manifest = {v: 2, kind: 'line_batch', source: SOURCE, part: 1, parts: 1, count: 1,
-    sha256: digest, batch_id: hash(SOURCE + '\n' + digest)};
-  const payload = compact ? core.canonical({format: 'C1', source: SOURCE, chats: [[r.chat, '2']], senders: [[r.sender, '1']]}) +
+  const manifest = {v: 2, kind: 'line_batch', source, part: 1, parts: 1, count: 1,
+    sha256: digest, batch_id: hash(source + '\n' + digest)};
+  const payload = compact ? core.canonical({format: 'C1', source, chats: [[r.chat, '2']], senders: [[r.sender, '1']]}) +
     '\n' + core.canonical(['102', r.time, 0, 0, r.text]) + '\n' : core.canonical(r) + '\n';
   const request = {token: TOKEN, maxid: '102', body: core.canonical(manifest) + '\n' + payload};
-  const result = {kind: 'line_task_result', status: 'extraction_complete', source: SOURCE,
+  const result = {kind: 'line_task_result', status: 'extraction_complete', source,
     processedMessageIDs: [r.id], items: [{item_id: r.id, kind: 'task', title: 'Submit synthetic form',
       certainty: 'confirmed', applies_to_user: true, due: '2026-11-06T17:00:00+09:00', evidence_ids: [r.id]}]};
   return {runtime, request, result, manifest};
@@ -89,4 +89,26 @@ test('Gmail byte-array and flowed result body is decoded for the configured sour
   assert.equal(report.results, 1);
   assert.equal(report.invalid, 0);
   assert.equal(runtime.tasks()[0].title, 'Submit synthetic form');
+});
+
+test('dedicated source saves one dated reply and retains the owner completion', () => {
+  const source = 'OFFLINE_PILOT';
+  const {runtime, request, result} = fixture(false, source);
+  assert.equal(runtime.receive(fixture().request), 'ERROR');
+  assert.equal(runtime.receive(request), 'OK');
+  assert.equal(runtime.receive(request), 'OK');
+  assert.equal(runtime.state.mails.length, 1);
+  const item = result.items[0];
+  item.kind = 'reply';
+  item.title = 'Reply to the synthetic request';
+  runtime.addResult(result);
+  assert.equal(runtime.maintenance().results, 1);
+  const task = runtime.tasks()[0];
+  assert.equal(task.kind, 'reply');
+  assert.equal(task.due, item.due);
+  runtime.setOwnerState(item.item_id, 'completed');
+  runtime.addResult(result);
+  assert.equal(runtime.maintenance().results, 0);
+  assert.equal(runtime.tasks().length, 1);
+  assert.equal(runtime.context.lasStore_(runtime.context.lasConfig_()).get('tasks', item.item_id).owner_state, 'completed');
 });
