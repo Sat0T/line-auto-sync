@@ -1,3 +1,9 @@
+# 独立GASの自動取込を有効化 — 2026-11-11
+
+Gmail互換修正を独立GASへ反映し、エディターのコード一致を確認。mvpMaintenanceの18:19 JST実行で results=0, invalid=0。enableMvpMaintenance実行完了、独立GASの時間ベース mvpMaintenance トリガーが1件と確認。設定は5分間隔。既存の毎時ChatGPTは次回18:52 JSTごろ。合成入力1通とbatchesのaccepted/sentは確認済みで、試験結果のGmail到着およびtasksへの自動保存は待機中。
+
+---
+
 # 実Gmail取込の互換修正 — 2026-11-11
 
 実Google上で独立GASの保存先を確認。batchesに合成1件がaccepted/sent、tasksにはヘッダーのみ。既存AIの実行待ち。mvpMaintenanceの事前実行では旧来の別source結果が多数invalidになったため、設定sourceを件名で限定し、Gmail Advanced Serviceのバイト配列とformat=flowedの本文に対応。ローカルNode 5件と合成デモ成功。独立GASエディターに反映済み。
