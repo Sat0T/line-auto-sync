@@ -1,11 +1,11 @@
 # 次の再開点 — 2026-11-11
 
-- Draft PR [#10](https://github.com/Sat0T/line-auto-sync/pull/10)、ブランチ `feat/mvp-task-pipeline-20261104`。最新SHAはこのファイルのコミットとPRのHEADを参照。開始時の記録は d3f2747、前回検証済みコードは 67a1ed7。
+- Draft PR [#10](https://github.com/Sat0T/line-auto-sync/pull/10)、ブランチ `feat/mvp-task-pipeline-20261104`。実装コミットは `7b90ba5f3c9f87281b12ba41dee1c1d5d8b284d6`。最新HEADはPRを参照。開始時の記録は d3f2747、前回検証済みコードは 67a1ed7。
 - 実GASから合成ID `MVP_DEMO:20261111001` を投入し、実Gmail、既存ChatGPT、独立Spreadsheetのtasksに候補1行保存まで確認済み。この経路の再構築は不要。
 - 今回の実装は `normal-only-rc1/{cli,sender,runner,recovery}.py`、`tools/{build_private_beta,verify_mvp_https}.py`。前景の定期収集、送信の明示指定、既存保留キューの明示再開、二重起動防止、状態・停止、無効状態の私用スナップショットを追加。合成専用HTTPS検証は不正トークン→正規送信→同一再送の順に実施。関連のテスト4ファイルとREADME、iPad復旧ガイドを更新。
-- ローカル合成試験はPython 53件、Node 5件が成功。合成デモは4件収集、送信試行2回、配送1通、タスク2行、再取込での増加0件。完了・取消を上書きしないことを確認。今回HEADのCIはPR Checksで確認する。前回HEADの[CI](https://github.com/Sat0T/line-auto-sync/actions/runs/42994284188)は6ジョブ成功。
+- ローカル合成試験はPython 53件、Node 5件が成功。合成デモは4件収集、送信試行2回、配送1通、タスク2行、再取込での増加0件。完了・取消を上書きしないことを確認。今回の実装コミットの[CI](https://github.com/Sat0T/line-auto-sync/actions/runs/43037797376)は6ジョブ成功。
 - 私用rootless RC4をローカル `dist/ipad-mvp-rc4/` に構築し、14モジュールのアーカイブ検査を通過。SHA-256は `3997a15b0d26b2bd2e2080992d4cddbe7ca1a3ee62473b21fe15fa01ac06182c`。再構築は `python tools/build_private_beta.py --output-dir dist/ipad-mvp-rc4`。パッケージ、実データ、秘密はGitHubへ置かない。
-- 外部HTTPSの実試験は、独立GASの新規ウェブアプリの公開を本人が承認してから。画面は「ウェブアプリ」「次のユーザーとして実行 自分」「アクセスできるユーザー 全員」「MVP synthetic HTTPS validation」。本番GASや既存通知には変更を加えていない。
+- 外部HTTPSの実試験は、独立GASの新規ウェブアプリの公開を本人が承認してから。画面は「ウェブアプリ」「次のユーザーとして実行 自分」「アクセスできるユーザー 全員」「MVP synthetic HTTPS validation」。公開操作は未実行。固定件名のGmail事前検索は0通。Windowsの対話セッションで通知音コマンドを1回実行し、実際に聞こえたかは本人回答待ち。本番GASや既存通知には変更を加えていない。
 - 承認後、`python tools/verify_mvp_https.py` が示す固定件名を個人Gmailで事前検索。独立の `/exec` URLとトークンを非表示入力または私有ファイルで `--live` に渡す。応答 ERROR→OK→OK、GoogleのHTTPSリダイレクト、Gmail同件名1通、batches同一ID1行・sentを確認。実LINEは使わない。結果と時刻をここへコミットする。新しい合成ID `MVP_DEMO:20261111002` は、既存ChatGPTの以前の合成1件専用ルールの対象外。
 - iPadは再起動後に脱獄アプリが見えず未調査。操作、復旧、インストール、実LINE送信は未実施。再開時は [iPad復旧手順](IPAD_RECOVERY_MVP_JA.md) の順で旧設定・キューを保全し、新旧sourceと保存先を分ける。rootless実機での依存・配置・LINEスキーマ・前景の継続性、実sourceのAI連携は未検証。バックグラウンドの自動起動は未設定。
 - 本番LINE、通知、カレンダー、台帳、GASに影響なし。独立GASでの公開、実機への導入、実LINE外部送信はそれぞれ承認が必要。PRはDraftのまま。課金・配布・マージは行っていない。
