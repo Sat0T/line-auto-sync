@@ -1,3 +1,9 @@
+# HTTPS・端末復旧準備の再開 — 2026-11-11
+
+実Spreadsheetのtasksを読戻し、MVP_DEMO:20261111001 が候補1行として保存されたことを確認。既存GAS→実Gmail→既存ChatGPT→Spreadsheetの合成試験は成功済み。iPad操作なしで、外部HTTPS試験、非破壊の再開手順、前景の定期実行を準備する。Webアプリ公開は本人承認が必要。
+
+---
+
 # 独立GASの自動取込を有効化 — 2026-11-11
 
 Gmail互換修正を独立GASへ反映し、エディターのコード一致を確認。mvpMaintenanceの18:19 JST実行で results=0, invalid=0。enableMvpMaintenance実行完了、独立GASの時間ベース mvpMaintenance トリガーが1件と確認。設定は5分間隔。既存の毎時ChatGPTは次回18:52 JSTごろ。合成入力1通とbatchesのaccepted/sentは確認済みで、試験結果のGmail到着およびtasksへの自動保存は待機中。
