@@ -20,6 +20,19 @@ GASはAIを呼ばず、ChatGPTの会話履歴へ書き込まない。既存ChatG
 
 GASコードはiPhone向けパッケージへ含めない。設定値はScript Propertiesと端末の私有設定へ分ける。
 
+## PCから外部HTTPSを確認
+
+現在の独立プロジェクトは `LAS_SOURCE=MVP_DEMO`。実行者を自分、アクセスを「全員」にするWebアプリの公開は、オーナー承認を得てから実施する。Apps Scriptの「デプロイ」→「新しいデプロイ」→「ウェブアプリ」を使い、対象が独立プロジェクトであることを確認する。公開URLは本人のローカル設定に保管する。
+
+```
+py tools/verify_mvp_https.py
+py tools/verify_mvp_https.py --live
+```
+
+1行目は試験バッチIDと検索用の件名だけを表示する。2行目は本人のターミナルで独立GASのURLとトークンを非表示で受け取り、架空1件を使って誤トークン→正しいトークン→同一再送の順に試す。URL、トークン、応答本文、リダイレクトのクエリを記録せず、応答がERROR/OK/OKと一致したか、転送先ホストとHTTP方式を出力する。合成IDは前回AI試験とは異なるため、既存AIの1件限定例外の対象外。正しい初回と再送の後、個人Gmailで表示された固定件名が1通、独立Spreadsheetのbatchesで同じIDが1行であることを確認する。すでに実試験が済んだバッチの再試行は同じIDを維持する。
+
+Google Content Serviceの応答は別ホストへリダイレクトされる。試験ツールは収集側と同じリダイレクト処理を使う。[Webアプリの公式手順](https://developers.google.com/apps-script/guides/web) · [Content Serviceの公式仕様](https://developers.google.com/apps-script/guides/content#redirects)
+
 ## 結果メールの互換形式
 
 本人が自分宛てに送信したSENTメールのみを読み、件名は `[LINE-TASK-RESULT] ` で始める。本文はMarkdownフェンスなしのtext/plain JSON。形式例は examples/synthetic_result.json（架空データのみ）。

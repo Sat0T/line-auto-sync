@@ -51,6 +51,10 @@ test('existing result schema creates visible tasks once and preserves owner comp
   runtime.addResult(result); assert.equal(runtime.maintenance().results, 0);
   assert.equal(runtime.tasks().length, 1);
   assert.equal(runtime.context.lasStore_(runtime.context.lasConfig_()).get('tasks', SOURCE + ':102').owner_state, 'completed');
+  runtime.setOwnerState(SOURCE + ':102', 'cancelled');
+  assert.equal(runtime.maintenance().results, 0);
+  assert.equal(runtime.tasks().length, 1);
+  assert.equal(runtime.context.lasStore_(runtime.context.lasConfig_()).get('tasks', SOURCE + ':102').owner_state, 'cancelled');
   const invalid = JSON.parse(JSON.stringify(result)); invalid.processedMessageIDs = [SOURCE + ':999'];
   runtime.addResult(invalid); assert.equal(runtime.maintenance().invalid, 1);
   assert.equal(runtime.tasks().length, 1);

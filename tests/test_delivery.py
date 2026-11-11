@@ -56,6 +56,61 @@ class DurableDeliveryTests(unittest.TestCase):
                                 capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_foreground_worker_collects_without_sending_and_stops(self):
+        self.case(r'''
+import cli, runner
+sync.collect()
+add(102)
+def cycle():
+    sync.collect()
+    try:
+        with runner.worker_lock():
+            raise AssertionError('second worker acquired lock')
+    except DeliveryError:
+        pass
+    runner.request_stop()
+runner.start(cli.doctor, cli.queue_status, collect_step=cycle,
+             send_step=lambda: (_ for _ in ()).throw(AssertionError('unexpected send')))
+assert cli.queue_status()['pending']==1
+assert runner.read_marker('worker-status.json')['state']=='stopped'
+try:
+    runner.start(cli.doctor, cli.queue_status, send=True)
+except RuntimeError as exc:
+    assert str(exc)=='pending_queue_requires_explicit_resume'
+else:
+    raise AssertionError('pending queue resumed')
+''')
+
+    def test_explicit_resume_retry_and_disabled_snapshot(self):
+        self.case(r'''
+import cli, runner, recovery
+sync.collect()
+add(102)
+sync.collect()
+posts=[]
+ticks=[]
+def attempt():
+    ticks.append(1)
+    if len(ticks)==2:
+        runner.request_stop()
+    return sender.send_once(lambda *args: posts.append(args) or len(posts)==2,
+                            now=10000+60*(len(ticks)-1))
+runner.start(cli.doctor, cli.queue_status, send=True, resume_pending=True,
+             send_step=attempt, sleep=lambda _: None)
+assert len(posts)==2 and posts[0]==posts[1]
+assert cli.queue_status()['pending']==0
+cli.disable()
+before=cli.queue_status()
+path=STATE_DIR.parent/'offline-snapshot'
+recovery.snapshot(path)
+with closing(sqlite3.connect(path/'normal-delivery.sqlite')) as db:
+    assert db.execute('SELECT COUNT(*) FROM messages WHERE acked=1').fetchone()[0]==1
+assert cli.queue_status()==before
+assert 'normal-delivery.sqlite' in json.loads((path/'snapshot.json').read_text())
+assert not json.loads((path/'config.json').read_text())['enabled']
+assert not (path/database.name).exists()
+''')
+
     def test_first_run_skips_history_then_collects_and_acks_new_text(self):
         self.case(r'''
 assert sync.collect()['pending']==0

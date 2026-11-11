@@ -28,7 +28,7 @@ Unofficial Python prototype for reading **normal LINE** messages from a local SQ
 
 The config starts disabled. The revised `configure` records `line_db`, `source_id`, `timestamp_unit` and `group_db` for the name resolver. The revised `doctor` checks the minimal message-table schema and a sample Unix-millisecond timestamp before allowing `enable`. These checks are **not** a proof of compatibility with a real LINE installation.
 
-The `normal-only-rc1` folder name is retained for compatibility. Current source builds private RC3 (`0.1.2~rc3`), not historical RC1/RC2 bytes. `python tools/build_private_beta.py` runs offline tests and checks an allowlisted archive. No binary is uploaded by CI or approved for distribution.
+The `normal-only-rc1` folder name is retained for compatibility. Current source builds private RC4 (`0.1.2~rc4`). `python tools/build_private_beta.py` runs offline tests and checks an allowlisted archive. See [iPad recovery and foreground operation](docs/IPAD_RECOVERY_MVP_JA.md) and [isolated HTTPS validation](cloud/gas/README_JA.md).
 
 ## RC3 delivery changes
 

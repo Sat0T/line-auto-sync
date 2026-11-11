@@ -19,8 +19,8 @@ def archive(entries, control=None):
 class PackageChecks(unittest.TestCase):
     def test_same_sources_produce_identical_archive_and_allowlist(self):
         entries = builder.get_payloads()
-        self.assertEqual(len(builder.MODULES), 12)
-        self.assertEqual(len(entries), 14)
+        self.assertEqual(len(builder.MODULES), 14)
+        self.assertEqual(len(entries), 16)
         self.assertTrue(all(path.startswith('./var/jb/') for path in entries))
         self.assertFalse(any('/LaunchDaemons/' in path for path in entries))
         self.assertEqual(archive(entries), archive(builder.get_payloads()))
