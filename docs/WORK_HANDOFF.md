@@ -1,3 +1,17 @@
+# 外部HTTPSの実試験完了 — 2026-11-12
+
+- 本人承認を受け、独立GAS `LINE Auto Sync MVP - isolated` をウェブアプリとしてデプロイ。バージョン2、実行ユーザーは本人、アクセス範囲は「全員」。有効なトークンと `MVP_DEMO` のsourceを受信処理で検証する。試験用デプロイは有効。URL・トークンは記録しない。
+- Windows PCから `tools/verify_mvp_https.py --live` を実行。不正トークンは `ERROR`、正しいトークンでの初回と同一バッチ再送は各 `OK`。3回ともGoogle応答のHTTP 302で `script.googleusercontent.com` へのGETに切り替わった。応答はアプリの本文で判定。
+- 試験IDは `MVP_DEMO:20261111002`。固定件名の本人発・本人宛Gmailは事前0通、再送後1通。独立Spreadsheetの `batches` に対象バッチ1行、`accepted / sent` を読戻し確認。ローカルの一時認証ファイルを削除済み。
+- Windowsの通知音は前回の承認依頼時に1回再生し、本人が「聞こえた」と確認。
+- 今回は実デプロイと合成送信の確認、および本書の更新。実装は `7b90ba5f3c9f87281b12ba41dee1c1d5d8b284d6`。前回HEAD `9beffd6` の[CI](https://github.com/Sat0T/line-auto-sync/actions/runs/43038212928)は全6ジョブ成功。最新HEAD・CIは [Draft PR #10](https://github.com/Sat0T/line-auto-sync/pull/10) のChecksを参照。
+- 既存ChatGPTの合成例外は `MVP_DEMO:20261111001` のみ。前回、そのIDの実GAS→Gmail→ChatGPT→独立Spreadsheetの候補タスク1行保存を確認済み。今回の `20261111002` は外部HTTPSと二重配送の確認用で、既存ChatGPTへの例外追加や台帳のタスク行追加をしていない。
+- iPad、本番GAS、既存通知、カレンダー、既存タスク台帳の設定は変更なし。端末の脱獄復旧・実機検証は未実施。実LINE外部送信、パッケージ導入、PRマージ・配布は承認されていない。
+
+**次のWork**　外部HTTPSと既存の合成AI処理は再検証不要。iPadが使えるようになったら [復旧ガイド](IPAD_RECOVERY_MVP_JA.md) に従い、既存の設定・キューを保全し、新旧sourceを分けて `recovery-check`、`doctor`、収集専用の `start` の順に進む。実機への導入と実LINEの外部送信はそれぞれ本人承認後。実sourceの受信先と既存ChatGPTへの接続はこの段階で確認する。
+
+---
+
 # 次の再開点 — 2026-11-11
 
 - Draft PR [#10](https://github.com/Sat0T/line-auto-sync/pull/10)、ブランチ `feat/mvp-task-pipeline-20261104`。実装コミットは `7b90ba5f3c9f87281b12ba41dee1c1d5d8b284d6`。最新HEADはPRを参照。開始時の記録は d3f2747、前回検証済みコードは 67a1ed7。
