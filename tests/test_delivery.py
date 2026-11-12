@@ -206,6 +206,31 @@ else:
     raise AssertionError('rebound existing queue')
 ''')
 
+    def test_timed_keep_trial_sends_only_its_fixed_text(self):
+        self.check_timed_keep_trial(wrong=False)
+
+    def test_timed_keep_trial_stops_before_sending_other_text(self):
+        self.check_timed_keep_trial(wrong=True)
+
+    def check_timed_keep_trial(self, wrong):
+        self.case('wrong = ' + repr(wrong) + '\n' + r'''
+sys.path.insert(0, str(Path('tools').resolve()))
+import rc6_keep_check as k, cli, runtime_paths, runner, presentation
+config['source_id'] = 'MVP_IPAD_LIVE'
+config['normal_line']['allowed_chat_pks'] = [2]
+CONFIG_FILE.write_text(json.dumps(config))
+sync.collect()
+add(102, 'unexpected' if wrong else k.SEND_MARKER)
+calls = []
+k.send_trial(cli, runtime_paths, runner, sender, presentation, lambda *args: calls.append(args) or True)
+assert len(calls) == (0 if wrong else 1)
+assert cli.queue_status()['pending'] == (1 if wrong else 0)
+assert not json.loads(CONFIG_FILE.read_text())['enabled']
+if not wrong:
+    records = presentation.decode_named(calls[0][2].partition(chr(10))[2])
+    assert len(records) == 1 and records[0]['text'] == k.SEND_MARKER
+''')
+
     def test_pilot_selects_one_from_three_without_acknowledging_queue(self):
         self.case(r'''
 sys.path.insert(0, str(Path('tools').resolve()))

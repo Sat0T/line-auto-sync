@@ -1,3 +1,11 @@
+# Keepメモの実機収集を確認し、時限送信試験を準備 — 2026-11-13
+
+- 本人のiPad画面で `pending: 2`、`keep_marker: 1`、`all_rows_in_scope: true`、`external_send: false`、終了時 `DISABLED` を確認。RC6の実機で許可したKeepメモの収集が成功。診断・接続試験・今回の3つのキューは保全。前回[CI](https://github.com/Sat0T/line-auto-sync/actions/runs/43287245015)は成功。
+- `tools/rc6_keep_check.py` に、確認済みのKeepメモIDと既存の独立GAS設定を端末内で再利用し、新規プロファイルを送信無効で準備する `prepare-trial` と、最長4分の前景ワーカー `send-approved-trial` を追加。固定試験文の1件だけを既存senderへ渡し、別の本文や複数件があれば保留して停止。成功・停止・中断後は無効化。対象Python回帰テスト2件成功。実際の送信、iPadの常駐設定、GASやChatGPTの変更は未実施。
+- 次は本人が固定試験文1件の送信範囲と独立GASのsource切替を承認後、端末の新規試験プロファイルを準備し、収集周期で自動送信・停止を確認する。試験用Keepメモには基準位置の設定後にコマンドを貼らず、固定試験文だけを入れる。結果確認後に既存ChatGPTへの運用範囲、ロック中・通信断・再起動復旧を別工程で扱う。
+
+---
+
 # RC6実機導入・Keepメモ限定の診断準備 — 2026-11-13
 
 本人がRC6導入済みと報告し、試験対象をKeepメモに指定。公開ソースの `tools/rc6_keep_check.py` は、本人が端末で作る試験文字列からトークを識別し、別のオフラインプロファイルで収集だけを確認して終了時に無効化する。既存の試験用3件・診断用8件は保全。PCの合成試験で初回基準、許可トークだけの収集、停止を確認。iPadの `keep_marker: 1` と `all_rows_in_scope: true` の返答待ち。実LINEの自動送信、独立GASの運用source切替、ChatGPTの定常ルール変更は未承認・未実施。[RC6実装CI](https://github.com/Sat0T/line-auto-sync/actions/runs/43285606780) は全6ジョブ成功。

@@ -6,10 +6,13 @@ import os
 from pathlib import Path
 import sqlite3
 import sys
+import time
 from unittest.mock import patch
+from urllib.parse import urlsplit
 
 BASE_MARKER = 'LAS-KEEP-6D19-BASE'
 CHECK_MARKER = 'LAS-KEEP-6D19-CHECK'
+SEND_MARKER = 'LAS-KEEP-6D19-SEND 2026年11月20日17時までに試験返信を確認する'
 SOURCE = 'RC6_SCOPE_CHECK'
 ENDPOINT = 'https://example.invalid/'
 
@@ -65,10 +68,94 @@ def check(cli, sync, runtime):
         cli.disable()
 
 
+def prepare_trial(profile, cli, sync, runtime):
+    offline = json.loads((Path.home() / 'las-rc6-keep-check/config/config.json').read_text(encoding='utf-8'))
+    paths = Path.home().glob('las-pilot.*/config/config.json')
+    pilots = [json.loads(path.read_text(encoding='utf-8')) for path in paths if not path.is_symlink()]
+    pilots = [p for p in pilots if p.get('source_id') == 'MVP_IPAD_PILOT'
+              and p.get('enabled') is False and p.get('line_db') == offline.get('line_db')]
+    chats = runtime.allowed_chat_pks(offline)
+    if len(pilots) != 1 or offline.get('source_id') != SOURCE or len(chats or ()) != 1:
+        raise RuntimeError('expected_isolated_pilot_and_verified_keep')
+    transport = pilots[0]['transport']
+    url = urlsplit(transport['endpoint'])
+    if (url.scheme != 'https' or url.netloc != 'script.google.com'
+            or not url.path.startswith('/macros/s/') or not url.path.endswith('/exec')
+            or url.query or url.fragment):
+        raise RuntimeError('expected_isolated_gas_destination')
+    profile.mkdir(mode=0o700)
+    cli.initialize()
+    with patch('builtins.input', side_effect=[transport['endpoint'], 'MVP_IPAD_LIVE', offline['line_db']]), \
+            patch.object(getpass, 'getpass', return_value=transport['token']):
+        cli.configure()
+    cli.restrict_chats([str(chats[0])])
+    cli.enable()
+    try:
+        if sync.collect()['pending'] != 0:
+            raise RuntimeError('expected_empty_trial_baseline')
+    finally:
+        cli.disable()
+    print('KEEP_TRIAL_READY')
+
+
+def send_trial(cli, runtime, runner, sender, presentation, post=None):
+    """Run one scheduled, four-minute window; only the exact trial text can leave."""
+    config = json.loads(runtime.CONFIG_FILE.read_text(encoding='utf-8'))
+    endpoint = config['transport']['endpoint']
+    chats = runtime.allowed_chat_pks(config)
+    if config.get('source_id') != 'MVP_IPAD_LIVE' or len(chats or ()) != 1:
+        raise RuntimeError('expected_scoped_trial')
+    post = sender.post_legacy if post is None else post
+    deadline = time.monotonic() + 240
+    result = None
+    batch_id = None
+
+    def guarded_post(destination, token, body, maxid):
+        nonlocal batch_id
+        header, _, payload = body.partition('\n')
+        records = presentation.decode_named(payload)
+        if (destination != endpoint or len(records) != 1 or records[0]['text'] != SEND_MARKER
+                or records[0]['refs']['chat_pk'] != str(chats[0])):
+            return False
+        batch_id = json.loads(header)['batch_id']
+        return post(destination, token, body, maxid)
+
+    def send_step():
+        nonlocal result
+        with readonly(runtime.STATE_DIR / 'normal-delivery.sqlite') as conn:
+            rows = conn.execute('SELECT raw FROM messages WHERE acked=0 LIMIT 2').fetchall()
+        if not rows:
+            return {}
+        if len(rows) != 1 or json.loads(rows[0][0])[4] != SEND_MARKER:
+            result = 'KEEP_TRIAL_HELD'
+            runner.request_stop()
+            return {'error': True}
+        report = sender.send_once(guarded_post)
+        if report.get('sent'):
+            result = 'KEEP_TRIAL_SENT'
+            runner.request_stop()
+        return report
+
+    def wait_tick(seconds):
+        if time.monotonic() >= deadline:
+            runner.request_stop()
+        else:
+            time.sleep(seconds)
+
+    cli.enable()
+    try:
+        runner.start(cli.doctor, cli.queue_status, send=True, resume_pending=True,
+                     send_step=send_step, sleep=wait_tick)
+    finally:
+        cli.disable()
+    print(json.dumps({'result': result or 'KEEP_TRIAL_STOPPED', 'batch_id': batch_id if result == 'KEEP_TRIAL_SENT' else None}))
+
+
 def main():
-    if sys.argv[1:] not in (['setup'], ['check']):
-        raise ValueError('expected_setup_or_check')
-    profile = Path.home() / 'las-rc6-keep-check'
+    if sys.argv[1:] not in (['setup'], ['check'], ['prepare-trial'], ['send-approved-trial']):
+        raise ValueError('expected_action')
+    action = sys.argv[1]
+    profile = Path.home() / ('las-rc6-keep-check' if action in ('setup', 'check') else 'las-rc6-keep-trial')
     if profile.is_symlink():
         raise RuntimeError('symlinked_check_profile')
     for key in ('LINE_AUTO_SYNC_STATE_DIR', 'LINE_AUTO_SYNC_CONFIG_DIR'):
@@ -78,10 +165,17 @@ def main():
     import cli
     import runtime_paths
     import sync
-    if sys.argv[1] == 'setup':
+    if action == 'setup':
         setup(profile, cli, sync)
-    else:
+    elif action == 'check':
         check(cli, sync, runtime_paths)
+    elif action == 'prepare-trial':
+        prepare_trial(profile, cli, sync, runtime_paths)
+    else:
+        import presentation
+        import runner
+        import sender
+        send_trial(cli, runtime_paths, runner, sender, presentation)
 
 
 if __name__ == '__main__':
