@@ -1,3 +1,11 @@
+# 実LINE 1件のGAS受信・Gmail配送を確認 — 2026-11-12
+
+iPadでコミット `f03a598` の単件ヘルパーを取得し、試験用キュー3件から本人が1件を選択。端末のプレビューでJST時刻とトーク表示を確認。送信者はNULLで、期限記載はなし。本人から明示承認を受け、該当1件のみiPadから独立GASへ送信。本人宛Gmailは送信前0通→送信後1通、独立Spreadsheetの受信台帳に同一バッチ1行 `accepted / sent / analysis pending` を確認。通常キューのACKは変更しない。実データの本文・ID・認証情報・URLはGitHubへ記載しない。
+
+次は既存の毎時「要対応メール通知」へ本人発・本人宛、固定件名、選択した1件のIDに限定する規則を、別途承認後に追記する。要返信候補・期限なしを本人宛ての結果JSONに保存し、Spreadsheetのtasksを読戻す。重複処理と完了保持、常駐・復旧の実機確認は未完了。[実装CI](https://github.com/Sat0T/line-auto-sync/actions/runs/43214037685) は全6ジョブ成功。
+
+---
+
 # 既存試験キューから1件だけ選ぶ手順 — 2026-11-12
 
 - 開始時のDraft PR #10 HEADは `15bf9ac`、[CI](https://github.com/Sat0T/line-auto-sync/actions/runs/43073076426) 成功。試験用3件、診断用8件、停止・無効化の確認は再試験不要。
