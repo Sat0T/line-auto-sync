@@ -1,6 +1,6 @@
 # 実LINE 1件をChatGPTが解析しタスク台帳へ保存 — 2026-11-12
 
-既存「要対応メール通知」の自然実行後、対象1件の本人宛結果メールが1通届き、独立Spreadsheetのtasksに1行だけ保存されたことを確認。kindはreply、確定度candidate、状態needs_review、期限なし。送信者NULLを推測しない。実LINE 1件のiPad→GAS→Gmail→ChatGPT→Spreadsheetを確認済み。試験行のowner_stateだけを一時的にcompletedに設定し、次の独立GAS取込後に1行のまま維持されるかを確認中。完了保持試験後は元の空欄に戻す。実データの内容・ID・URLはGitHubに掲載しない。継続運転・復旧は未検証。
+既存「要対応メール通知」の自然実行後、対象1件の本人宛結果メールが1通届き、独立Spreadsheetのtasksに1行だけ保存されたことを確認。kindはreply、確定度candidate、状態needs_review、期限なし。送信者NULLを推測しない。実LINE 1件のiPad→GAS→Gmail→ChatGPT→Spreadsheetを確認済み。試験行のowner_stateを一時的にcompletedにし、21:53:35 JSTのGAS定期再取込が `results: 0 / invalid: 0` で完了した後も対象行1件、completedを保持することを確認。試験値は元の空欄に戻して読み戻し確認済み。実データの内容・ID・URLはGitHubに掲載しない。次は運用対象のトークと送信範囲を確定し、保全済み試験キューとは別の運用設定で収集・自動送信を試験する。実際の自動送信範囲と既存タスクの定常ルール変更は承認が必要。画面ロック中の継続運転、再起動・通信断後の復旧は未検証。
 
 ---
 
