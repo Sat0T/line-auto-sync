@@ -1,3 +1,9 @@
+# RC6実機導入・Keepメモ限定の診断準備 — 2026-11-13
+
+本人がRC6導入済みと報告し、試験対象をKeepメモに指定。公開ソースの `tools/rc6_keep_check.py` は、本人が端末で作る試験文字列からトークを識別し、別のオフラインプロファイルで収集だけを確認して終了時に無効化する。既存の試験用3件・診断用8件は保全。PCの合成試験で初回基準、許可トークだけの収集、停止を確認。iPadの `keep_marker: 1` と `all_rows_in_scope: true` の返答待ち。実LINEの自動送信、独立GASの運用source切替、ChatGPTの定常ルール変更は未承認・未実施。[RC6実装CI](https://github.com/Sat0T/line-auto-sync/actions/runs/43285606780) は全6ジョブ成功。
+
+---
+
 # 許可トーク限定の運用準備 — 2026-11-13
 
 - 前回の実LINE単件E2Eと重複・完了保持は再試験不要。開始時HEAD `f697ead` の[CI](https://github.com/Sat0T/line-auto-sync/actions/runs/43222308936)は成功。iPadの試験用3件と診断用8件を維持。
