@@ -151,11 +151,29 @@ def send_trial(cli, runtime, runner, sender, presentation, post=None):
     print(json.dumps({'result': result or 'KEEP_TRIAL_STOPPED', 'batch_id': batch_id if result == 'KEEP_TRIAL_SENT' else None}))
 
 
+def require_held_trial(home):
+    old = home / 'las-rc6-keep-trial'
+    config = json.loads((old / 'config/config.json').read_text(encoding='utf-8'))
+    if config.get('enabled') is not False or config.get('source_id') != 'MVP_IPAD_LIVE':
+        raise RuntimeError('previous_trial_must_be_disabled')
+    with readonly(old / 'state/normal-delivery.sqlite') as conn:
+        pending, sent = conn.execute(
+            'SELECT COUNT(*), COALESCE(SUM(acked), 0) FROM messages').fetchone()
+        if not pending or sent or conn.execute('SELECT 1 FROM delivery').fetchone():
+            raise RuntimeError('previous_delivery_requires_review')
+
+
 def main():
-    if sys.argv[1:] not in (['setup'], ['check'], ['prepare-trial'], ['send-approved-trial']):
+    actions = ('setup', 'check', 'prepare-trial', 'send-approved-trial', 'retry-approved-trial')
+    if len(sys.argv) != 2 or sys.argv[1] not in actions:
         raise ValueError('expected_action')
     action = sys.argv[1]
-    profile = Path.home() / ('las-rc6-keep-check' if action in ('setup', 'check') else 'las-rc6-keep-trial')
+    home = Path.home()
+    if action == 'retry-approved-trial':
+        require_held_trial(home)
+        profile = home / 'las-rc6-keep-trial-retry'
+    else:
+        profile = home / ('las-rc6-keep-check' if action in ('setup', 'check') else 'las-rc6-keep-trial')
     if profile.is_symlink():
         raise RuntimeError('symlinked_check_profile')
     for key in ('LINE_AUTO_SYNC_STATE_DIR', 'LINE_AUTO_SYNC_CONFIG_DIR'):
@@ -175,6 +193,8 @@ def main():
         import presentation
         import runner
         import sender
+        if action == 'retry-approved-trial':
+            prepare_trial(profile, cli, sync, runtime_paths)
         send_trial(cli, runtime_paths, runner, sender, presentation)
 
 
