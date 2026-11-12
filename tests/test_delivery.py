@@ -158,6 +158,42 @@ else:
 assert len(calls) == 1
 ''')
 
+    def test_pilot_selects_one_from_three_without_acknowledging_queue(self):
+        self.case(r'''
+sys.path.insert(0, str(Path('tools').resolve()))
+import mvp_one_message as m
+config['source_id'] = 'MVP_IPAD_PILOT'
+config['transport']['endpoint'] = 'https://script.google.com' + '/macros/s/offline-test/exec'
+CONFIG_FILE.write_text(json.dumps(config))
+sync.collect()
+for pk in (102, 103, 104):
+    add(pk, 'record ' + str(pk))
+sync.collect()
+config['enabled'] = False
+CONFIG_FILE.write_text(json.dumps(config))
+before = status()
+calls = []
+def post(*args):
+    calls.append(args)
+    return True
+review = m.review_pilot(103, post=post)
+assert review['record']['id'] == 'MVP_IPAD_PILOT:103'
+assert review['record']['text'] == 'record 103'
+assert not calls
+try:
+    m.review_pilot(104, review['approval_sha256'], post)
+except RuntimeError as exc:
+    assert str(exc) == 'approval_does_not_match'
+else:
+    raise AssertionError('different row sent')
+assert not calls
+assert m.review_pilot(103, review['approval_sha256'], post)['sent']
+assert len(calls) == 1 and calls[0][3] == 103
+assert 'record 102' not in calls[0][2] and 'record 104' not in calls[0][2]
+assert json.loads(calls[0][2].splitlines()[0])['batch_id'] == review['batch_id']
+assert status() == before and before['pending'] == 3
+''')
+
     def test_timeout_new_arrival_and_retry_keep_identical_batch(self):
         self.case(r'''
 sync.collect();add(102);sync.collect();calls=[]
