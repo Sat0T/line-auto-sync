@@ -1,3 +1,9 @@
+# 承認済みのKeepメモ自動送信試験を開始 — 2026-11-13
+
+本人承認後、独立GASの `LAS_SOURCE` だけを `MVP_IPAD_PILOT` から `MVP_IPAD_LIVE` へ切替し、設定画面で保存確認。個人GmailへiPad手順を送付。承認範囲は固定試験文1件、最大4分、独立GAS→本人宛Gmailのみ。既存ChatGPTの追加変更は未実施。iPadの送信結果とGmail・受信台帳の確認待ち。新規試験キュー以外は操作していない。[実装CI](https://github.com/Sat0T/line-auto-sync/actions/runs/43300286088)は成功。
+
+---
+
 # Keepメモの実機収集を確認し、時限送信試験を準備 — 2026-11-13
 
 - 本人のiPad画面で `pending: 2`、`keep_marker: 1`、`all_rows_in_scope: true`、`external_send: false`、終了時 `DISABLED` を確認。RC6の実機で許可したKeepメモの収集が成功。診断・接続試験・今回の3つのキューは保全。前回[CI](https://github.com/Sat0T/line-auto-sync/actions/runs/43287245015)は成功。
