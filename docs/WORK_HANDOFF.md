@@ -1,3 +1,12 @@
+# 許可トーク限定の運用準備 — 2026-11-13
+
+- 前回の実LINE単件E2Eと重複・完了保持は再試験不要。開始時HEAD `f697ead` の[CI](https://github.com/Sat0T/line-auto-sync/actions/runs/43222308936)は成功。iPadの試験用3件と診断用8件を維持。
+- `MVP_IPAD_LIVE` は本人承認のトークIDを `restrict-chats` で指定した専用プロファイルが必要。許可IDだけをLINE DBの読み取り専用SQLで収集し、送信直前にキューと送信内容のトークIDを照合する。キューと送信元・DB・URL・許可範囲を結び付け、旧キューや旧カーソルの転用を拒否。通常の既存プロファイルの互換性を維持。
+- 私用RC6を `python tools/build_private_beta.py --output-dir dist/ipad-mvp-rc6` で構築。Python 57件成功、パッケージ内容確認済み。SHA-256 `ed980f1eeb0af2de4c3305df587523c8c390969a057e2c48d7fb0f62c0a5742c`。バイナリをGitHubには掲載しない。
+- 次はRC6導入承認と、送信範囲を最初のテストトーク1つに確定。旧環境を維持し、別プロファイルで収集専用試験を先に行う。独立GASのsource変更、実メッセージの自動送信、既存ChatGPTの常用ルール変更は対象と範囲を確定して承認を得る。画面ロック中の継続・通信断後再送・再起動復旧は未検証。今回のソース変更でiPad・GAS・ChatGPT設定は変えていない。
+
+---
+
 # 実LINE 1件をChatGPTが解析しタスク台帳へ保存 — 2026-11-12
 
 既存「要対応メール通知」の自然実行後、対象1件の本人宛結果メールが1通届き、独立Spreadsheetのtasksに1行だけ保存されたことを確認。kindはreply、確定度candidate、状態needs_review、期限なし。送信者NULLを推測しない。実LINE 1件のiPad→GAS→Gmail→ChatGPT→Spreadsheetを確認済み。試験行のowner_stateを一時的にcompletedにし、21:53:35 JSTのGAS定期再取込が `results: 0 / invalid: 0` で完了した後も対象行1件、completedを保持することを確認。試験値は元の空欄に戻して読み戻し確認済み。実データの内容・ID・URLはGitHubに掲載しない。次は運用対象のトークと送信範囲を確定し、保全済み試験キューとは別の運用設定で収集・自動送信を試験する。実際の自動送信範囲と既存タスクの定常ルール変更は承認が必要。画面ロック中の継続運転、再起動・通信断後の復旧は未検証。

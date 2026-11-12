@@ -10,7 +10,7 @@
 
 ## 私用パッケージの確認
 
-`python tools/build_private_beta.py --output-dir dist/ipad-mvp-rc5` で現行ソースから構築する。付属のRC5_BUILD_REPORT.jsonでSHA-256と内容の検証結果を確認する。RC4は新規端末で展開に必要なディレクトリが不足していたため、RC5を使う。RC4が今回の失敗で半端な状態なら、同一パッケージのRC5をそのままインストールし、パージや強制オプションは使わない。インストール先はrootless用の `/var/jb`。Python 3.9以上とsqlite3、sslが必要。mobileユーザーで動かす。
+`python tools/build_private_beta.py --output-dir dist/ipad-mvp-rc6` で現行ソースから構築する。付属のRC6_BUILD_REPORT.jsonでSHA-256と内容の検証結果を確認する。RC4の展開ディレクトリ不足はRC5で修正し、実機で確認した。RC6の導入は別途承認と実機確認が必要。パージや強制オプションは使わない。インストール先はrootless用の `/var/jb`。Python 3.9以上とsqlite3、sslが必要。mobileユーザーで動かす。
 
 ## 復旧確認と新sourceの準備
 
@@ -26,6 +26,8 @@ line-auto-sync status
 ```
 
 configureでは、権限を持つDBの絶対パス、専用のsource ID、承認済みHTTPS URLとトークンを入力する。トークンは非表示。合成専用のMVP_DEMOと実機sourceは別。新しい実機sourceを使う場合、独立した受信先のLAS_SOURCEと一致させ、既存ChatGPTがそのsourceを読む変更は別途承認を得る。初回の新規キューは既存履歴を基準位置にし、その後の新着を収集する。
+
+日常運転用の `MVP_IPAD_LIVE` では、configureの直後、最初の収集より前に `line-auto-sync restrict-chats CHAT_PK [CHAT_PK ...]` を使う。本人が承認した通常LINEの内部トークIDだけを指定する。初回は収集専用で確認する。範囲を変える場合は別の新規プロファイルとキューを作る。既存の試験キューと旧カーソルは保全する。
 
 ## 起動、状態、停止
 

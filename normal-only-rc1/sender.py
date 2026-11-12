@@ -12,7 +12,7 @@ import urllib.request
 from delivery_state import DeliveryError, DeliveryState
 import legacy_names
 import normal_hold
-from runtime_paths import STATE_DIR, require_enabled
+from runtime_paths import STATE_DIR, allowed_chat_pks, require_enabled
 
 
 @contextmanager
@@ -132,7 +132,7 @@ def send_once(post=None, now=None):
                 active = queue.db.execute('SELECT * FROM delivery').fetchone()
                 if active is None:
                     return dict(queue.status(), sent=False, reason='already_acknowledged')
-                ids = queue.verify_frozen(active, current_config['source_id'])
+                ids = queue.verify_frozen(active, current_config['source_id'], allowed_chat_pks(current_config))
                 if active['next_attempt'] > now:
                     return dict(queue.status(), sent=False, reason='retry_wait')
                 frozen = (active['batch_id'], active['body'], active['ids'],
@@ -157,7 +157,7 @@ def send_once(post=None, now=None):
                     latest['attempts'], latest['next_attempt']
                 ) != frozen:
                     raise DeliveryError('delivery_changed_during_http')
-                queue.verify_frozen(latest, latest_config['source_id'])
+                queue.verify_frozen(latest, latest_config['source_id'], allowed_chat_pks(latest_config))
                 if accepted:
                     queue.acknowledge(latest, now)
                 else:

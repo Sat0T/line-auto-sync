@@ -9,6 +9,9 @@ from pathlib import Path
 import re
 import sqlite3
 from checkpoint import scan_low
+from runtime_paths import allowed_chat_pks
+
+LEGACY_STATE = ('new.csv', 'lastid', 'sentid', 'initial_scan_id', 'sent_at')
 
 APPLICATION_ID = 0x4C414E33
 SCHEMA = (
@@ -164,10 +167,17 @@ class DeliveryState:
     def bind(self, config):
         database = Path(config["line_db"]).resolve(strict=True)
         stat = database.stat()
-        identity = hashlib.sha256(json.dumps([
+        components = [
             config["source_id"], str(database), stat.st_dev, stat.st_ino,
             config["transport"]["endpoint"]
-        ], ensure_ascii=False).encode()).hexdigest()
+        ]
+        chats = allowed_chat_pks(config)
+        if chats is not None:
+            if any((self.directory / name).exists() or (self.directory / name).is_symlink()
+                   for name in LEGACY_STATE):
+                raise DeliveryError("scoped_queue_requires_fresh_state")
+            components.append(chats)
+        identity = hashlib.sha256(json.dumps(components, ensure_ascii=False).encode()).hexdigest()
         old = self.get("identity")
         if old is not None and old != identity:
             raise DeliveryError("source_database_or_destination_changed")
@@ -227,7 +237,7 @@ class DeliveryState:
         self.db.execute("INSERT INTO delivery(singleton,body,ids,batch_id) VALUES(1,?,?,?)",
                         (body, json.dumps(ids), manifest["batch_id"]))
 
-    def verify_frozen(self, delivery, source):
+    def verify_frozen(self, delivery, source, allowed_chats=None):
         """Fail closed before HTTP if a persisted request or its queued IDs drift.
 
         A frozen request can outlive a process and must be independently
@@ -278,6 +288,10 @@ class DeliveryState:
                 if (type(original) is not list or len(original) != 5 or
                         record["text"] != original[4]):
                     raise ValueError("frozen_text_mismatch")
+                if allowed_chats is not None and (
+                        not original[2].isdigit() or int(original[2]) not in allowed_chats
+                        or record["refs"]["chat_pk"] != original[2]):
+                    raise ValueError("frozen_chat_outside_scope")
             return ids
         except (ValueError, TypeError, KeyError, IndexError, UnicodeError,
                 presentation.PresentationError, transport.TransportError) as exc:

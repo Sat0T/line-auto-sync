@@ -13,7 +13,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from runtime_paths import CONFIG_DIR, CONFIG_FILE, STATE_DIR, require_enabled, valid_endpoint
+from runtime_paths import CONFIG_DIR, CONFIG_FILE, STATE_DIR, allowed_chat_pks, require_enabled, valid_endpoint
 
 DB_POINTER = "dbpath"
 REQUIRED_MESSAGE_COLUMNS = {"Z_PK", "ZTIMESTAMP", "ZCHAT", "ZSENDER", "ZTEXT"}
@@ -105,6 +105,9 @@ def doctor():
     config = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
     if config.get("schema_version") != 1:
         raise RuntimeError("Unsupported configuration version")
+    chats = allowed_chat_pks(config)
+    if chats is not None:
+        print("Allowed normal LINE chats:", len(chats))
     if config.get("timestamp_unit") != "unix_ms":
         raise RuntimeError("Timestamp unit is not configured as unix_ms")
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", str(config.get("source_id", ""))):
@@ -237,11 +240,32 @@ def recovery_check():
     worker_status()
 
 
+def restrict_chats(values):
+    from delivery_state import LEGACY_STATE
+    from runner import worker_lock
+    if CONFIG_DIR.is_symlink() or CONFIG_FILE.is_symlink() or not CONFIG_FILE.is_file():
+        raise RuntimeError("Configuration missing or symlinked")
+    with worker_lock():
+        config = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+        if config.get("enabled") is not False or not (STATE_DIR / DB_POINTER).is_file():
+            raise RuntimeError("Configure and disable a fresh profile first")
+        names = (*LEGACY_STATE, 'normal-delivery.sqlite')
+        if any((STATE_DIR / name).exists() or (STATE_DIR / name).is_symlink() for name in names):
+            raise RuntimeError("Use a fresh profile for a different chat scope")
+        config.setdefault("normal_line", {})["allowed_chat_pks"] = [int(pk) for pk in values]
+        config["normal_line"]["allowed_chat_pks"] = list(allowed_chat_pks(config))
+        save_config(config)
+    print("Chat scope saved. Synchronization is disabled.")
+
+
 def main():
     os.umask(0o077)
     from runner import request_stop, start_cli, worker_status
     if len(sys.argv) >= 2 and sys.argv[1] == "start":
         start_cli(sys.argv[2:], doctor, queue_status)
+        return
+    if len(sys.argv) >= 2 and sys.argv[1] == "restrict-chats":
+        restrict_chats(sys.argv[2:])
         return
     if len(sys.argv) == 3 and sys.argv[1] == "snapshot":
         from recovery import snapshot
@@ -256,6 +280,7 @@ def main():
         print("Usage: line-auto-sync init|configure|doctor|enable|disable|run|status|worker-status|stop")
         print("       line-auto-sync start [--send] [--resume-pending]")
         print("       line-auto-sync recovery-check | snapshot NEW_PRIVATE_DIRECTORY")
+        print("       line-auto-sync restrict-chats CHAT_PK [CHAT_PK ...]")
         raise SystemExit(2)
     actions[sys.argv[1]]()
 

@@ -20,24 +20,25 @@ MODULES = (
     "presentation.py", "recovery.py", "resolver.py", "runner.py", "runtime_paths.py", "sender.py",
     "setup_normal.py", "sync.py", "transport.py",
 )
-PACKAGE_NAME = "line-auto-sync_0.1.2-rc5_PRIVATE.deb"
+PACKAGE_NAME = "line-auto-sync_0.1.2-rc6_PRIVATE.deb"
 APPROOT = "./var/jb/usr/libexec/line-auto-sync"
 LAUNCHER = "./var/jb/usr/bin/line-auto-sync"
 DATA_DIRECTORIES = ("./var/jb/usr/libexec", APPROOT)
 CONTROL = """Package: com.sat0t.line-auto-sync.private
 Name: LINE Auto Sync Private Test Candidate
-Version: 0.1.2~rc5
+Version: 0.1.2~rc6
 Architecture: iphoneos-arm64
 Depends: firmware (>= 15.0)
 Maintainer: Sat0T
 Section: Utilities
 Description: Unverified rootless normal LINE test candidate; manual foreground worker
 """
-README = """LINE AUTO SYNC PRIVATE RC5 / NOT APPROVED FOR DISTRIBUTION
+README = """LINE AUTO SYNC PRIVATE RC6 / NOT APPROVED FOR DISTRIBUTION
 Generated reproducibly from reviewed source, not previous RC1/RC2 binaries.
 Rootless /var/jb; manual Python 3; no automatic startup or Python bundled.
 Commands: line-auto-sync init, configure, doctor, enable, run, status, disable.
 Foreground schedule: start, worker-status, stop. start defaults to collect-only.
+For MVP_IPAD_LIVE use restrict-chats before creating the new queue.
 Network requires start --send; existing pending data requires --resume-pending.
 Use recovery-check for read-only diagnostics and snapshot for disabled state backup.
 Default state is DISABLED. Normal LINE only. OpenChat excluded.
@@ -181,7 +182,7 @@ def main():
     verify(archive, entries)
     output_dir.mkdir(parents=True, exist_ok=True)
     target = output_dir / PACKAGE_NAME
-    report = output_dir / "RC5_BUILD_REPORT.json"
+    report = output_dir / "RC6_BUILD_REPORT.json"
     if target.exists() or target.is_symlink() or report.exists():
         stop("Refusing to overwrite existing build outputs")
     target.write_bytes(archive)
@@ -196,7 +197,7 @@ def main():
         "distribution": "PRIVATE ONLY — DO NOT REDISTRIBUTE",
     }
     report.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print("PRIVATE RC5 BUILD SUCCESS")
+    print("PRIVATE RC6 BUILD SUCCESS")
     print("SHA256:", sha)
     print("Build:", target)
     print("Report:", report)

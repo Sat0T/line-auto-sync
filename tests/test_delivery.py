@@ -158,6 +158,54 @@ else:
 assert len(calls) == 1
 ''')
 
+    def test_live_chat_scope_filters_collection_and_freezes_existing_scope(self):
+        self.case(r'''
+import cli, presentation
+config['source_id'] = 'MVP_IPAD_LIVE'
+CONFIG_FILE.write_text(json.dumps(config))
+try:
+    sync.collect()
+except ValueError as exc:
+    assert str(exc) == 'live_source_requires_chat_allowlist'
+else:
+    raise AssertionError('unscoped live collection')
+assert not (STATE_DIR/'normal-delivery.sqlite').exists()
+config['enabled'] = False
+CONFIG_FILE.write_text(json.dumps(config))
+cli.restrict_chats(['2'])
+cli.enable()
+assert sync.collect()['pending'] == 0
+add(102, 'permitted')
+with closing(sqlite3.connect(database)) as db:
+    db.execute('INSERT INTO ZMESSAGE VALUES(?,?,?,?,?)', (103,1735689600000,3,1,'excluded'))
+    db.execute('INSERT INTO ZMESSAGE VALUES(?,?,?,?,?)', (104,1735689600000,None,1,'unknown room'))
+    db.commit()
+first = sync.collect()
+assert first['pending'] == 1 and first['collected'] == 104
+requests = []
+assert sender.send_once(lambda *args: requests.append(args) or True, now=10000)['sent']
+records = presentation.decode_named(requests[0][2].partition('\n')[2])
+assert len(records) == 1 and records[0]['text'] == 'permitted'
+assert records[0]['refs']['chat_pk'] == '2'
+cli.disable()
+try:
+    cli.restrict_chats(['3'])
+except RuntimeError:
+    pass
+else:
+    raise AssertionError('existing queue scope changed')
+configured = json.loads(CONFIG_FILE.read_text())
+configured['normal_line']['allowed_chat_pks'] = [3]
+configured['enabled'] = True
+CONFIG_FILE.write_text(json.dumps(configured))
+try:
+    sync.collect()
+except DeliveryError as exc:
+    assert str(exc) == 'source_database_or_destination_changed'
+else:
+    raise AssertionError('rebound existing queue')
+''')
+
     def test_pilot_selects_one_from_three_without_acknowledging_queue(self):
         self.case(r'''
 sys.path.insert(0, str(Path('tools').resolve()))
