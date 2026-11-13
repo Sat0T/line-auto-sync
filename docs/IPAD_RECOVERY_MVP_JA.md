@@ -47,3 +47,14 @@ startは前景で既定120秒ごとに収集する。2つ目のターミナル�
 ## タスクの扱い
 
 独立Spreadsheetのtasksで確認する。本人が完了・取消したらowner_stateをcompleted/cancelledにする。同じAI結果の再取込では、行も本人状態も維持する。確認待ちはneeds_review。実LINEが受理された場合も、候補の判断は本人が行う。
+
+## Keepメモ専用のバックグラウンド運転（実機検証中）
+
+RC6の既存CLIを一時的なlaunchdジョブからmobileユーザーで起動する。rootlessのPythonとCLIを使う。試験ごとの古いキューと稼働中の既存ジョブには触れない。専用プロファイルは `/var/mobile/las-keep-daily`。一時登録なので、脱獄の再有効化後は手動で再登録する。
+
+1. 同じディレクトリにある `keep_launchd.py` と既存 `rc6_keep_check.py` をmobileで使う。初回のみ `python3 keep_launchd.py prepare`。確認済みのKeepメモだけを設定し、履歴を初期位置とした新しいキューを作り、無効の状態で終える。
+2. ロック診断は `python3 keep_launchd.py probe ./las-probe.plist`。専用ログ `/var/mobile/las-keep-daily/lock-probe.jsonl` には時刻とKeepメモの最大メッセージ番号だけを5秒間隔で記録する。診断中は外部送信なし。時刻の連続性と、別端末から追加した新着がロック中にDBへ反映されたかを別々に判定する。前回の診断ログがある場合は別名に保全してから再試験する。
+3. ジョブは `sudo install -m 644 ./las-probe.plist /var/root/las-probe.plist` でroot管理の一時ファイルへコピーし、`sudo launchctl bootstrap system /var/root/las-probe.plist` で開始する。停止は `sudo launchctl bootout system/com.sat0t.line-auto-sync.keep`。実行状態は `sudo launchctl print system/com.sat0t.line-auto-sync.keep`。別のモードは同じラベルを使うので、先に前のジョブを停止する。
+4. 収集・送信運転では先に `LINE_AUTO_SYNC_BASE_DIR=/var/mobile/las-keep-daily` を設定し、既存CLIの `recovery-check` と `enable` を使う。設定・状態の上書き用環境変数は解除する。手順3と同じ方法で `collect` または承認済みの `send` モードのplistを登録する。キューが保留・凍結していると通常の送信起動は拒否する。本人がそのキューの同一宛先への送信を確認済みの場合のみ `resume` を使う。
+5. 通信断試験は承認済みのKeepメモ1件を対象とし、再接続前に保留・凍結・試行回数を、再接続後に送信時刻とGASの1件だけの受理を確認する。停止時は既存CLIの `stop` でネットワーク処理の終了と `worker-status` の `stopped` を待ち、ジョブを解除して `disable`。必要なら `snapshot` で未送信キューを保全する。
+6. 再起動で脱獄が無効化されたときは、従来の手順で再有効化し、同一の専用プロファイルで `recovery-check`。保留を確認してから同じジョブを再登録する。再起動時に `prepare` や `init` は不要。
