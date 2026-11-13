@@ -56,6 +56,61 @@ class DurableDeliveryTests(unittest.TestCase):
                                 capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_foreground_worker_collects_without_sending_and_stops(self):
+        self.case(r'''
+import cli, runner
+sync.collect()
+add(102)
+def cycle():
+    sync.collect()
+    try:
+        with runner.worker_lock():
+            raise AssertionError('second worker acquired lock')
+    except DeliveryError:
+        pass
+    runner.request_stop()
+runner.start(cli.doctor, cli.queue_status, collect_step=cycle,
+             send_step=lambda: (_ for _ in ()).throw(AssertionError('unexpected send')))
+assert cli.queue_status()['pending']==1
+assert runner.read_marker('worker-status.json')['state']=='stopped'
+try:
+    runner.start(cli.doctor, cli.queue_status, send=True)
+except RuntimeError as exc:
+    assert str(exc)=='pending_queue_requires_explicit_resume'
+else:
+    raise AssertionError('pending queue resumed')
+''')
+
+    def test_explicit_resume_retry_and_disabled_snapshot(self):
+        self.case(r'''
+import cli, runner, recovery
+sync.collect()
+add(102)
+sync.collect()
+posts=[]
+ticks=[]
+def attempt():
+    ticks.append(1)
+    if len(ticks)==2:
+        runner.request_stop()
+    return sender.send_once(lambda *args: posts.append(args) or len(posts)==2,
+                            now=10000+60*(len(ticks)-1))
+runner.start(cli.doctor, cli.queue_status, send=True, resume_pending=True,
+             send_step=attempt, sleep=lambda _: None)
+assert len(posts)==2 and posts[0]==posts[1]
+assert cli.queue_status()['pending']==0
+cli.disable()
+before=cli.queue_status()
+path=STATE_DIR.parent/'offline-snapshot'
+recovery.snapshot(path)
+with closing(sqlite3.connect(path/'normal-delivery.sqlite')) as db:
+    assert db.execute('SELECT COUNT(*) FROM messages WHERE acked=1').fetchone()[0]==1
+assert cli.queue_status()==before
+assert 'normal-delivery.sqlite' in json.loads((path/'snapshot.json').read_text())
+assert not json.loads((path/'config.json').read_text())['enabled']
+assert not (path/database.name).exists()
+''')
+
     def test_first_run_skips_history_then_collects_and_acks_new_text(self):
         self.case(r'''
 assert sync.collect()['pending']==0
@@ -68,6 +123,149 @@ assert len(calls)==1 and calls[0][3]==102
 assert status()['collected']==103 and status()['acknowledged']==102
 assert status()['pending']==0
 assert sender.send_once(lambda *args: False,now=10001)['reason']=='hourly_gate'
+''')
+
+    def test_one_message_review_guards_exact_payload_before_post(self):
+        self.case(r'''
+sys.path.insert(0, str(Path('tools').resolve()))
+import mvp_one_message as m
+sync.collect(); add(102); sync.collect()
+calls = []
+def post(*args):
+    calls.append(args)
+    return True
+preview = m.review(post=post)
+assert preview['record']['id'] == 'OFFLINE_TEST_SOURCE:102'
+assert preview['record']['time'].endswith('+09:00')
+assert not calls
+try:
+    m.review('wrong', post)
+except RuntimeError:
+    pass
+else:
+    raise AssertionError('mismatched approval accepted')
+assert not calls
+assert m.review(preview['approval_sha256'], post)['sent']
+assert len(calls) == 1 and status()['pending'] == 0
+assert json.loads(calls[0][2].splitlines()[0])['batch_id'] == preview['batch_id']
+add(103); add(104); sync.collect()
+try:
+    m.review(post=post)
+except RuntimeError as exc:
+    assert str(exc) == 'exactly_one_pending_message_required'
+else:
+    raise AssertionError('multi-message queue accepted')
+assert len(calls) == 1
+''')
+
+    def test_live_chat_scope_filters_collection_and_freezes_existing_scope(self):
+        self.case(r'''
+import cli, presentation
+config['source_id'] = 'MVP_IPAD_LIVE'
+CONFIG_FILE.write_text(json.dumps(config))
+try:
+    sync.collect()
+except ValueError as exc:
+    assert str(exc) == 'live_source_requires_chat_allowlist'
+else:
+    raise AssertionError('unscoped live collection')
+assert not (STATE_DIR/'normal-delivery.sqlite').exists()
+config['enabled'] = False
+CONFIG_FILE.write_text(json.dumps(config))
+cli.restrict_chats(['2'])
+cli.enable()
+assert sync.collect()['pending'] == 0
+add(102, 'permitted')
+with closing(sqlite3.connect(database)) as db:
+    db.execute('INSERT INTO ZMESSAGE VALUES(?,?,?,?,?)', (103,1735689600000,3,1,'excluded'))
+    db.execute('INSERT INTO ZMESSAGE VALUES(?,?,?,?,?)', (104,1735689600000,None,1,'unknown room'))
+    db.commit()
+first = sync.collect()
+assert first['pending'] == 1 and first['collected'] == 104
+requests = []
+assert sender.send_once(lambda *args: requests.append(args) or True, now=10000)['sent']
+records = presentation.decode_named(requests[0][2].partition('\n')[2])
+assert len(records) == 1 and records[0]['text'] == 'permitted'
+assert records[0]['refs']['chat_pk'] == '2'
+cli.disable()
+try:
+    cli.restrict_chats(['3'])
+except RuntimeError:
+    pass
+else:
+    raise AssertionError('existing queue scope changed')
+configured = json.loads(CONFIG_FILE.read_text())
+configured['normal_line']['allowed_chat_pks'] = [3]
+configured['enabled'] = True
+CONFIG_FILE.write_text(json.dumps(configured))
+try:
+    sync.collect()
+except DeliveryError as exc:
+    assert str(exc) == 'source_database_or_destination_changed'
+else:
+    raise AssertionError('rebound existing queue')
+''')
+
+    def test_timed_keep_trial_sends_only_its_fixed_text(self):
+        self.check_timed_keep_trial(wrong=False)
+
+    def test_timed_keep_trial_stops_before_sending_other_text(self):
+        self.check_timed_keep_trial(wrong=True)
+
+    def check_timed_keep_trial(self, wrong):
+        self.case('wrong = ' + repr(wrong) + '\n' + r'''
+sys.path.insert(0, str(Path('tools').resolve()))
+import rc6_keep_check as k, cli, runtime_paths, runner, presentation
+config['source_id'] = 'MVP_IPAD_LIVE'
+config['normal_line']['allowed_chat_pks'] = [2]
+CONFIG_FILE.write_text(json.dumps(config))
+sync.collect()
+add(102, k.LOCK_MARKER if wrong else k.AUTO_MARKER)
+calls = []
+k.send_trial(cli, runtime_paths, runner, sender, presentation,
+             lambda *args: calls.append(args) or True, marker=k.AUTO_MARKER)
+assert len(calls) == (0 if wrong else 1)
+assert cli.queue_status()['pending'] == (1 if wrong else 0)
+assert not json.loads(CONFIG_FILE.read_text())['enabled']
+if not wrong:
+    records = presentation.decode_named(calls[0][2].partition(chr(10))[2])
+    assert len(records) == 1 and records[0]['text'] == k.AUTO_MARKER
+''')
+
+    def test_pilot_selects_one_from_three_without_acknowledging_queue(self):
+        self.case(r'''
+sys.path.insert(0, str(Path('tools').resolve()))
+import mvp_one_message as m
+config['source_id'] = 'MVP_IPAD_PILOT'
+config['transport']['endpoint'] = 'https://script.google.com' + '/macros/s/offline-test/exec'
+CONFIG_FILE.write_text(json.dumps(config))
+sync.collect()
+for pk in (102, 103, 104):
+    add(pk, 'record ' + str(pk))
+sync.collect()
+config['enabled'] = False
+CONFIG_FILE.write_text(json.dumps(config))
+before = status()
+calls = []
+def post(*args):
+    calls.append(args)
+    return True
+review = m.review_pilot(103, post=post)
+assert review['record']['id'] == 'MVP_IPAD_PILOT:103'
+assert review['record']['text'] == 'record 103'
+assert not calls
+try:
+    m.review_pilot(104, review['approval_sha256'], post)
+except RuntimeError as exc:
+    assert str(exc) == 'approval_does_not_match'
+else:
+    raise AssertionError('different row sent')
+assert not calls
+assert m.review_pilot(103, review['approval_sha256'], post)['sent']
+assert len(calls) == 1 and calls[0][3] == 103
+assert 'record 102' not in calls[0][2] and 'record 104' not in calls[0][2]
+assert json.loads(calls[0][2].splitlines()[0])['batch_id'] == review['batch_id']
+assert status() == before and before['pending'] == 3
 ''')
 
     def test_timeout_new_arrival_and_retry_keep_identical_batch(self):

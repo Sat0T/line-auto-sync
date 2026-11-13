@@ -12,7 +12,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-24.04, windows-latest]
         python-version: ["3.9", "3.12"]
     steps:
       - uses: actions/checkout@v4
@@ -39,3 +39,18 @@ jobs:
           python-version: "3.12"
       - name: Check reachable Git blobs and public commit metadata (redacted report)
         run: python tools/audit_git_history.py
+
+  mvp-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: GAS entry points with disposable service doubles
+        run: node --test tests/test_mvp.js
+      - name: Collector to receiver to precomputed AI receipt to task sheet
+        run: python tools/demo_mvp.py

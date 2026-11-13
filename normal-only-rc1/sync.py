@@ -4,7 +4,7 @@ import sqlite3
 import subprocess
 import sys
 from delivery_state import DeliveryError, DeliveryState
-from runtime_paths import STATE_DIR, require_enabled
+from runtime_paths import STATE_DIR, allowed_chat_pks, require_enabled
 
 
 def collect():
@@ -25,8 +25,14 @@ def collect():
             low = queue.initialize_cursor(high)
             if high < low:
                 raise DeliveryError('source_database_rewound')
-            rows = connection.execute('''SELECT Z_PK,ZTIMESTAMP,ZCHAT,ZSENDER,ZTEXT
-                FROM ZMESSAGE WHERE Z_PK>? AND Z_PK<=? AND length(ZTEXT)>0 ORDER BY Z_PK''', (low, high))
+            chats = allowed_chat_pks(config)
+            query = '''SELECT Z_PK,ZTIMESTAMP,ZCHAT,ZSENDER,ZTEXT
+                FROM ZMESSAGE WHERE Z_PK>? AND Z_PK<=? AND length(ZTEXT)>0'''
+            params = (low, high)
+            if chats is not None:
+                query += ' AND ZCHAT IN (' + ','.join('?' for _ in chats) + ')'
+                params += chats
+            rows = connection.execute(query + ' ORDER BY Z_PK', params)
             count = queue.insert_rows(rows)
             queue.set('collected', high)
         return dict(queue.status(), added=count)
