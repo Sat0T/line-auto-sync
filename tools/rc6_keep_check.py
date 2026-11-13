@@ -14,6 +14,7 @@ BASE_MARKER = 'LAS-KEEP-6D19-BASE'
 CHECK_MARKER = 'LAS-KEEP-6D19-CHECK'
 SEND_MARKER = 'LAS-KEEP-6D19-SEND 2026年11月20日17時までに試験返信を確認する'
 LOCK_MARKER = 'LAS-KEEP-6D19-LOCK 2026年11月21日17時までに試験資料を確認する'
+AUTO_MARKER = 'LAS-KEEP-6D19-AUTO 2026年11月22日17時までに自動取込の試験結果を確認する'
 SOURCE = 'RC6_SCOPE_CHECK'
 ENDPOINT = 'https://example.invalid/'
 
@@ -166,7 +167,8 @@ def require_held_trial(home):
 
 def main():
     actions = ('setup', 'check', 'prepare-trial', 'send-approved-trial', 'retry-approved-trial',
-               'prepare-lock', 'send-approved-lock', 'lock-status', 'lock-stop')
+               'prepare-lock', 'send-approved-lock', 'lock-status', 'lock-stop',
+               'prepare-auto', 'send-approved-auto', 'auto-status', 'auto-stop')
     if len(sys.argv) != 2 or sys.argv[1] not in actions:
         raise ValueError('expected_action')
     action = sys.argv[1]
@@ -176,6 +178,8 @@ def main():
         profile = home / 'las-rc6-keep-trial-retry'
     elif action in ('prepare-lock', 'send-approved-lock', 'lock-status', 'lock-stop'):
         profile = home / 'las-rc6-keep-lock'
+    elif action in ('prepare-auto', 'send-approved-auto', 'auto-status', 'auto-stop'):
+        profile = home / 'las-rc6-keep-auto'
     else:
         profile = home / ('las-rc6-keep-check' if action in ('setup', 'check') else 'las-rc6-keep-trial')
     if profile.is_symlink():
@@ -191,11 +195,11 @@ def main():
         setup(profile, cli, sync)
     elif action == 'check':
         check(cli, sync, runtime_paths)
-    elif action in ('prepare-trial', 'prepare-lock'):
+    elif action in ('prepare-trial', 'prepare-lock', 'prepare-auto'):
         prepare_trial(profile, cli, sync, runtime_paths)
-    elif action == 'lock-status':
+    elif action in ('lock-status', 'auto-status'):
         cli.recovery_check()
-    elif action == 'lock-stop':
+    elif action in ('lock-stop', 'auto-stop'):
         cli.disable()
     else:
         import presentation
@@ -203,7 +207,8 @@ def main():
         import sender
         if action == 'retry-approved-trial':
             prepare_trial(profile, cli, sync, runtime_paths)
-        marker = LOCK_MARKER if action == 'send-approved-lock' else SEND_MARKER
+        marker = {'send-approved-lock': LOCK_MARKER,
+                  'send-approved-auto': AUTO_MARKER}.get(action, SEND_MARKER)
         send_trial(cli, runtime_paths, runner, sender, presentation, marker=marker)
 
 

@@ -220,16 +220,16 @@ config['source_id'] = 'MVP_IPAD_LIVE'
 config['normal_line']['allowed_chat_pks'] = [2]
 CONFIG_FILE.write_text(json.dumps(config))
 sync.collect()
-add(102, k.SEND_MARKER if wrong else k.LOCK_MARKER)
+add(102, k.LOCK_MARKER if wrong else k.AUTO_MARKER)
 calls = []
 k.send_trial(cli, runtime_paths, runner, sender, presentation,
-             lambda *args: calls.append(args) or True, marker=k.LOCK_MARKER)
+             lambda *args: calls.append(args) or True, marker=k.AUTO_MARKER)
 assert len(calls) == (0 if wrong else 1)
 assert cli.queue_status()['pending'] == (1 if wrong else 0)
 assert not json.loads(CONFIG_FILE.read_text())['enabled']
 if not wrong:
     records = presentation.decode_named(calls[0][2].partition(chr(10))[2])
-    assert len(records) == 1 and records[0]['text'] == k.LOCK_MARKER
+    assert len(records) == 1 and records[0]['text'] == k.AUTO_MARKER
 ''')
 
     def test_pilot_selects_one_from_three_without_acknowledging_queue(self):
