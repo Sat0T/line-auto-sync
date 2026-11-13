@@ -63,7 +63,7 @@ def validate_daily():
         raise RuntimeError('unsafe_daily_profile')
     config = json.loads(config_file.read_text(encoding='utf-8'))
     chats = config['normal_line']['allowed_chat_pks']
-    baseline = json.loads((BASE.parent / 'las-rc6-keep-check/config/config.json').read_text(encoding='utf-8'))
+    baseline = json.loads((Path.home() / 'las-rc6-keep-check/config/config.json').read_text(encoding='utf-8'))
     if (config['source_id'] != 'MVP_IPAD_LIVE' or len(chats) != 1
             or baseline['normal_line']['allowed_chat_pks'] != chats
             or baseline['line_db'] != config['line_db']
