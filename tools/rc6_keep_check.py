@@ -165,10 +165,59 @@ def require_held_trial(home):
             raise RuntimeError('previous_delivery_requires_review')
 
 
+def deliver_held_auto(runtime, runner, sender, post=None):
+    """Send the already approved text from the stopped trial without consuming its queue."""
+    import legacy_names
+    import transport
+    from delivery_state import DeliveryState, normalize_row
+
+    with runner.worker_lock(), sender.sender_lock(runtime.STATE_DIR):
+        config = json.loads(runtime.CONFIG_FILE.read_text(encoding='utf-8'))
+        target = config['transport']
+        url = urlsplit(target['endpoint'])
+        chats = runtime.allowed_chat_pks(config)
+        if (config.get('enabled') is not False or config.get('source_id') != 'MVP_IPAD_LIVE'
+                or len(chats or ()) != 1 or url.scheme != 'https' or url.netloc != 'script.google.com'
+                or not url.path.startswith('/macros/s/') or not url.path.endswith('/exec')
+                or url.query or url.fragment):
+            raise RuntimeError('expected_disabled_scoped_auto_trial')
+        path = runtime.STATE_DIR / 'normal-delivery.sqlite'
+        if path.is_symlink() or not path.is_file():
+            raise RuntimeError('existing_queue_required')
+        queue = DeliveryState(runtime.STATE_DIR)
+        try:
+            with queue.transaction():
+                queue.bind(config)
+                if queue.status()['frozen'] or queue.get('success_at') is not None:
+                    raise RuntimeError('prior_delivery_requires_review')
+                matches = [row for row in queue.pending_rows() if row[4] == AUTO_MARKER]
+                if len(matches) != 1 or str(matches[0][2]) != str(chats[0]):
+                    raise RuntimeError('expected_one_exact_approved_marker')
+                pk, timestamp, chat, author, text = normalize_row(matches[0])
+                row = queue.db.execute('SELECT raw,hash FROM messages WHERE pk=? AND acked=0',
+                                       (pk,)).fetchone()
+                if row is None or transport.digest(row['raw'].encode()) != row['hash']:
+                    raise RuntimeError('invalid_pending_row')
+                record = legacy_names.enrich_legacy(dict(id=pk, time_ms=timestamp, chat=chat,
+                                                         sender=author, text=text))
+                body = legacy_names.finalize_body(transport.canonical(record) + '\n')
+                manifest = transport.strict_json(body.partition('\n')[0])
+        finally:
+            queue.close()
+            legacy_names.close()
+        if manifest['count'] != 1 or manifest['source'] != config['source_id']:
+            raise RuntimeError('invalid_single_message_batch')
+        post = sender.post_legacy if post is None else post
+        if not post(target['endpoint'], target['token'], body, int(pk)):
+            raise RuntimeError('delivery_unconfirmed_check_receiver_before_retry')
+        print(json.dumps({'result': 'KEEP_TRIAL_SENT', 'batch_id': manifest['batch_id'],
+                          'queue_preserved': True}))
+
+
 def main():
     actions = ('setup', 'check', 'prepare-trial', 'send-approved-trial', 'retry-approved-trial',
                'prepare-lock', 'send-approved-lock', 'lock-status', 'lock-stop',
-               'prepare-auto', 'send-approved-auto', 'auto-status', 'auto-stop')
+               'prepare-auto', 'send-approved-auto', 'auto-status', 'auto-stop', 'deliver-held-auto')
     if len(sys.argv) != 2 or sys.argv[1] not in actions:
         raise ValueError('expected_action')
     action = sys.argv[1]
@@ -178,7 +227,7 @@ def main():
         profile = home / 'las-rc6-keep-trial-retry'
     elif action in ('prepare-lock', 'send-approved-lock', 'lock-status', 'lock-stop'):
         profile = home / 'las-rc6-keep-lock'
-    elif action in ('prepare-auto', 'send-approved-auto', 'auto-status', 'auto-stop'):
+    elif action in ('prepare-auto', 'send-approved-auto', 'auto-status', 'auto-stop', 'deliver-held-auto'):
         profile = home / 'las-rc6-keep-auto'
     else:
         profile = home / ('las-rc6-keep-check' if action in ('setup', 'check') else 'las-rc6-keep-trial')
@@ -205,6 +254,9 @@ def main():
         import presentation
         import runner
         import sender
+        if action == 'deliver-held-auto':
+            deliver_held_auto(runtime_paths, runner, sender)
+            return
         if action == 'retry-approved-trial':
             prepare_trial(profile, cli, sync, runtime_paths)
         marker = {'send-approved-lock': LOCK_MARKER,
