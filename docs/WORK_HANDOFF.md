@@ -1,3 +1,9 @@
+# ロック試験の安全停止を確認 — 2026-11-13
+
+iPadの画面で `KEEP_TRIAL_STOPPED`、`DISABLED`、`state: stopped`、`pending: 0`、`frozen: false`、`attempts: 0`、`success_at: null` を確認。受信台帳・Gmailともロック中と解除直後の到着なし。次は既存ロック試験プロファイルを無効のまま、LINE DBを読み取り専用で開き、承認済み固定文の一致件数と収集位置より後かを確認する。LINEの同期遅延とワーカーの進行を区別する。再送と既存ChatGPTの設定変更は行っていない。
+
+---
+
 # ロック解除後も配送なし、端末診断待ち — 2026-11-13
 
 本人が13:07ごろ（JST）に解除し、NewTermの最終表示は `WORKER: ok` と報告。解除直後と約40秒後、GAS受信台帳・本人宛Gmailに今回の新規到着はともに0件。初回の `WORKER: ok` は送信成功の証拠ではない。次はiPadの別タブで同じロック試験プロファイルに対して `python3 ./keep_lock.py lock-stop` と `python3 ./keep_lock.py lock-status` を実行し、無効化・pending・frozen・worker stateを確認。再送は行わない。必要ならLINE DBで固定文の反映有無と前景ワーカーの進行を切り分ける。定期ChatGPTの追加変更は未実施。
