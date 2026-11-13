@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 BASE_MARKER = 'LAS-KEEP-6D19-BASE'
 CHECK_MARKER = 'LAS-KEEP-6D19-CHECK'
 SEND_MARKER = 'LAS-KEEP-6D19-SEND 2026年11月20日17時までに試験返信を確認する'
+LOCK_MARKER = 'LAS-KEEP-6D19-LOCK 2026年11月21日17時までに試験資料を確認する'
 SOURCE = 'RC6_SCOPE_CHECK'
 ENDPOINT = 'https://example.invalid/'
 
@@ -98,7 +99,7 @@ def prepare_trial(profile, cli, sync, runtime):
     print('KEEP_TRIAL_READY')
 
 
-def send_trial(cli, runtime, runner, sender, presentation, post=None):
+def send_trial(cli, runtime, runner, sender, presentation, post=None, *, marker=SEND_MARKER):
     """Run one scheduled, four-minute window; only the exact trial text can leave."""
     config = json.loads(runtime.CONFIG_FILE.read_text(encoding='utf-8'))
     endpoint = config['transport']['endpoint']
@@ -114,7 +115,7 @@ def send_trial(cli, runtime, runner, sender, presentation, post=None):
         nonlocal batch_id
         header, _, payload = body.partition('\n')
         records = presentation.decode_named(payload)
-        if (destination != endpoint or len(records) != 1 or records[0]['text'] != SEND_MARKER
+        if (destination != endpoint or len(records) != 1 or records[0]['text'] != marker
                 or records[0]['refs']['chat_pk'] != str(chats[0])):
             return False
         batch_id = json.loads(header)['batch_id']
@@ -126,7 +127,7 @@ def send_trial(cli, runtime, runner, sender, presentation, post=None):
             rows = conn.execute('SELECT raw FROM messages WHERE acked=0 LIMIT 2').fetchall()
         if not rows:
             return {}
-        if len(rows) != 1 or json.loads(rows[0][0])[4] != SEND_MARKER:
+        if len(rows) != 1 or json.loads(rows[0][0])[4] != marker:
             result = 'KEEP_TRIAL_HELD'
             runner.request_stop()
             return {'error': True}
@@ -164,7 +165,8 @@ def require_held_trial(home):
 
 
 def main():
-    actions = ('setup', 'check', 'prepare-trial', 'send-approved-trial', 'retry-approved-trial')
+    actions = ('setup', 'check', 'prepare-trial', 'send-approved-trial', 'retry-approved-trial',
+               'prepare-lock', 'send-approved-lock', 'lock-status', 'lock-stop')
     if len(sys.argv) != 2 or sys.argv[1] not in actions:
         raise ValueError('expected_action')
     action = sys.argv[1]
@@ -172,6 +174,8 @@ def main():
     if action == 'retry-approved-trial':
         require_held_trial(home)
         profile = home / 'las-rc6-keep-trial-retry'
+    elif action in ('prepare-lock', 'send-approved-lock', 'lock-status', 'lock-stop'):
+        profile = home / 'las-rc6-keep-lock'
     else:
         profile = home / ('las-rc6-keep-check' if action in ('setup', 'check') else 'las-rc6-keep-trial')
     if profile.is_symlink():
@@ -187,15 +191,20 @@ def main():
         setup(profile, cli, sync)
     elif action == 'check':
         check(cli, sync, runtime_paths)
-    elif action == 'prepare-trial':
+    elif action in ('prepare-trial', 'prepare-lock'):
         prepare_trial(profile, cli, sync, runtime_paths)
+    elif action == 'lock-status':
+        cli.recovery_check()
+    elif action == 'lock-stop':
+        cli.disable()
     else:
         import presentation
         import runner
         import sender
         if action == 'retry-approved-trial':
             prepare_trial(profile, cli, sync, runtime_paths)
-        send_trial(cli, runtime_paths, runner, sender, presentation)
+        marker = LOCK_MARKER if action == 'send-approved-lock' else SEND_MARKER
+        send_trial(cli, runtime_paths, runner, sender, presentation, marker=marker)
 
 
 if __name__ == '__main__':
