@@ -13,10 +13,10 @@ import sys
 import time
 from urllib.parse import urlsplit
 
-BASE = Path('/var/mobile/las-keep-lock-power-r2')
-LABEL = 'com.sat0t.line-auto-sync.keep-lock-power-r2'
+BASE = Path('/var/mobile/las-keep-lock-power-r3')
+LABEL = 'com.sat0t.line-auto-sync.keep-lock-power-r3'
 LIBEXEC = '/var/jb/usr/libexec/line-auto-sync'
-TEXT = 'ロック中の自動配送を確認する試験メモ'
+TEXT = 'ロック中のLINE同期と配送を確認する試験メモ'
 SECONDS = 240
 
 
