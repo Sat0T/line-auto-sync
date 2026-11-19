@@ -26,9 +26,15 @@ def collect():
             if high < low:
                 raise DeliveryError('source_database_rewound')
             chats = allowed_chat_pks(config)
+            # A restricted chat can receive a late lower-PK row or a placeholder's
+            # text after the global high-water mark advanced. Reconcile only its
+            # post-activation rows; insert_rows deduplicates and preserves ACKs.
+            scan_low = int(queue.get('initial_baseline', str(low))) if chats is not None else low
+            if not 0 <= scan_low <= low:
+                raise DeliveryError('invalid_initial_baseline')
             query = '''SELECT Z_PK,ZTIMESTAMP,ZCHAT,ZSENDER,ZTEXT
                 FROM ZMESSAGE WHERE Z_PK>? AND Z_PK<=? AND length(ZTEXT)>0'''
-            params = (low, high)
+            params = (scan_low, high)
             if chats is not None:
                 query += ' AND ZCHAT IN (' + ','.join('?' for _ in chats) + ')'
                 params += chats
