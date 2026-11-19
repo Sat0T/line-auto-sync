@@ -1,5 +1,6 @@
 """Bounded, single-message lock-screen delivery using the installed RC6 worker."""
 from contextlib import closing, contextmanager
+from datetime import datetime, timedelta, timezone
 import ctypes as C
 import hashlib
 import json
@@ -12,10 +13,10 @@ import sys
 import time
 from urllib.parse import urlsplit
 
-BASE = Path('/var/mobile/las-keep-lock-power')
-LABEL = 'com.sat0t.line-auto-sync.keep-lock-power'
+BASE = Path('/var/mobile/las-keep-lock-power-r2')
+LABEL = 'com.sat0t.line-auto-sync.keep-lock-power-r2'
 LIBEXEC = '/var/jb/usr/libexec/line-auto-sync'
-TEXT = 'ロック中に届くか確認する試験メモ'
+TEXT = 'ロック中の自動配送を確認する試験メモ'
 SECONDS = 240
 
 
@@ -86,10 +87,45 @@ def configure_runtime():
     sys.path.insert(0, LIBEXEC)
 
 
+def freeze_trial(runtime, sender, config):
+    """Freeze only the approved row; leave every other pending row untouched."""
+    import legacy_names
+    import transport
+    from delivery_state import DeliveryState
+
+    with sender.sender_lock(runtime.STATE_DIR):
+        queue = DeliveryState(runtime.STATE_DIR)
+        try:
+            with queue.transaction():
+                queue.bind(config)
+                active = queue.db.execute('SELECT * FROM delivery').fetchone()
+                if active is not None:
+                    queue.verify_frozen(active, config['source_id'], runtime.allowed_chat_pks(config))
+                    return True
+                matches = [row for row in queue.pending_rows() if row[4] == TEXT]
+                if not matches:
+                    return False
+                if len(matches) != 1:
+                    raise RuntimeError('duplicate_trial_text')
+                pk, timestamp, chat, author, text = matches[0]
+                if int(chat) not in runtime.allowed_chat_pks(config):
+                    raise RuntimeError('trial_chat_mismatch')
+                record = legacy_names.enrich_legacy(dict(id=pk, time_ms=timestamp,
+                                                         chat=chat, sender=author, text=text))
+                body = legacy_names.finalize_body(transport.canonical(record) + '\n')
+                queue.freeze(body, [int(pk)])
+                active = queue.db.execute('SELECT * FROM delivery').fetchone()
+                queue.verify_frozen(active, config['source_id'], runtime.allowed_chat_pks(config))
+                return True
+        finally:
+            queue.close()
+            legacy_names.close()
+
+
 def run(runtime, sync, sender, decode, log):
     config = runtime.require_enabled()
     chat, = runtime.allowed_chat_pks(config)
-    deadline = time.time() + SECONDS
+    deadline = time.monotonic() + SECONDS
     database = Path(config['line_db']).resolve(strict=True)
     stopped = False
 
@@ -98,7 +134,7 @@ def run(runtime, sync, sender, decode, log):
         stopped = True
 
     def guarded_post(endpoint, token, body, maxid):
-        if stopped or time.time() >= deadline:
+        if stopped or time.monotonic() >= deadline:
             return False
         header, _, payload = body.partition('\n')
         records = decode(payload)
@@ -112,7 +148,8 @@ def run(runtime, sync, sender, decode, log):
     signal.signal(signal.SIGINT, request_stop)
     with stay_awake():
         log('awake')
-        while not stopped and time.time() < deadline:
+        baseline_hits = None
+        while not stopped and time.monotonic() < deadline:
             if runtime.require_enabled() != config:
                 raise RuntimeError('configuration_changed')
             try:
@@ -124,20 +161,19 @@ def run(runtime, sync, sender, decode, log):
                 log('db_error', error=type(exc).__name__)
                 time.sleep(5)
                 continue
-            log('tick', marker_rows=hits)
+            if baseline_hits is None:
+                baseline_hits = hits
+            log('tick', marker_rows=hits, new_marker_rows=hits - baseline_hits)
             result = sync.collect()
             if result['pending']:
-                queue = runtime.STATE_DIR / 'normal-delivery.sqlite'
-                with closing(sqlite3.connect(queue.as_uri() + '?mode=ro', uri=True)) as db:
-                    rows = db.execute('SELECT raw FROM messages WHERE acked=0 LIMIT 2').fetchall()
-                if len(rows) != 1 or json.loads(rows[0][0])[4] != TEXT:
-                    log('held', pending=result['pending'])
-                    return
-                report = sender.send_once(guarded_post)
-                log('delivery', sent=report.get('sent', False), pending=report['pending'],
-                    reason=report.get('reason') or report.get('error'))
-                if report.get('sent'):
-                    return
+                if freeze_trial(runtime, sender, config):
+                    report = sender.send_once(guarded_post)
+                    log('delivery', sent=report.get('sent', False), pending=report['pending'],
+                        reason=report.get('reason') or report.get('error'))
+                    if report.get('sent'):
+                        return
+                else:
+                    log('waiting_for_trial', other_pending=result['pending'])
             time.sleep(5)
 
 
@@ -151,7 +187,9 @@ def worker(expected_digest):
 
     with runner.worker_lock(), (BASE / 'power-lock.jsonl').open('x', encoding='utf-8') as stream:
         def log(event, **fields):
-            print(json.dumps(dict(at=int(time.time()), event=event, **fields)), file=stream, flush=True)
+            stamp = time.time()
+            local = datetime.fromtimestamp(stamp, timezone(timedelta(hours=9))).isoformat(timespec='seconds')
+            print(json.dumps(dict(at=int(stamp), jst=local, event=event, **fields)), file=stream, flush=True)
 
         try:
             config = json.loads(runtime.CONFIG_FILE.read_text(encoding='utf-8'))
@@ -211,7 +249,7 @@ def main():
     }
     with Path(sys.argv[1]).open('xb') as out:
         plistlib.dump(spec, out)
-    print('LOCK_JOB_READY')
+    print('PREPARED_NOT_STARTED')
 
 
 if __name__ == '__main__':
