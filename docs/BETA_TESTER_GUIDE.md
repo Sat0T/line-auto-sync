@@ -13,8 +13,8 @@ python tools/build_private_beta.py
 ```
 
 The compatibility command `tools/build_private_rc2.py` now invokes the current RC3
-builder; it does not reproduce historical RC2 bytes. Version: `0.1.2~rc3`; output
-`dist/line-auto-sync_0.1.2-rc3_PRIVATE.deb` plus `RC3_BUILD_REPORT.json`. Tests and
+builder; it does not reproduce historical RC2 bytes. Version: `0.1.2~rc4`; output
+`dist/line-auto-sync_0.1.2-rc4_PRIVATE.deb` plus `RC4_BUILD_REPORT.json`. Tests and
 build verification do not install packages, contact a receiver, or validate iOS.
 Archive metadata/time/order/newlines are fixed. Identical input in the same build
 environment is tested byte-for-byte; compare hashes across environments rather

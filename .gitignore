@@ -13,3 +13,5 @@ private-build/
 private-ipad-snapshot/
 assembly-private/
 dist/
+.las-private/
+private-lock-trials/

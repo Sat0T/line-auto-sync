@@ -13,7 +13,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from runtime_paths import CONFIG_DIR, CONFIG_FILE, STATE_DIR, require_enabled, valid_endpoint
+from runtime_paths import CONFIG_DIR, CONFIG_FILE, STATE_DIR, allowed_chat_pks, require_enabled, valid_endpoint
 
 DB_POINTER = "dbpath"
 REQUIRED_MESSAGE_COLUMNS = {"Z_PK", "ZTIMESTAMP", "ZCHAT", "ZSENDER", "ZTEXT"}
@@ -105,6 +105,9 @@ def doctor():
     config = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
     if config.get("schema_version") != 1:
         raise RuntimeError("Unsupported configuration version")
+    chats = allowed_chat_pks(config)
+    if chats is not None:
+        print("Allowed normal LINE chats:", len(chats))
     if config.get("timestamp_unit") != "unix_ms":
         raise RuntimeError("Timestamp unit is not configured as unix_ms")
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", str(config.get("source_id", ""))):
@@ -185,23 +188,26 @@ def disable():
     config = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
     config["enabled"] = False
     save_config(config)
+    from runner import request_stop
+    request_stop()
     print("DISABLED")
 
 
 def run():
+    from runner import worker_lock
     require_enabled()
-    doctor()
-    subprocess.run([sys.executable, str(Path(__file__).with_name("sync.py"))], check=True)
+    with worker_lock():
+        doctor()
+        subprocess.run([sys.executable, str(Path(__file__).with_name("sync.py"))], check=True)
 
 
-def status():
+def queue_status():
     from delivery_state import APPLICATION_ID
     path = STATE_DIR / 'normal-delivery.sqlite'
     if path.is_symlink() or STATE_DIR.is_symlink():
         raise RuntimeError('unsafe_state_path')
     if not path.exists():
-        print(json.dumps({'queue_initialized': False}))
-        return
+        return {'queue_initialized': False}
     connection = sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True)
     try:
         connection.execute('PRAGMA query_only=ON')
@@ -209,25 +215,72 @@ def status():
         if connection.execute('PRAGMA application_id').fetchone()[0] != APPLICATION_ID:
             raise RuntimeError('foreign_delivery_database')
         meta = dict(connection.execute('SELECT key,value FROM meta'))
+        frozen = connection.execute('SELECT attempts,next_attempt FROM delivery').fetchone()
         result = {'queue_initialized': True,
                   'collected': int(meta.get('collected', '0')),
                   'acknowledged': int(meta.get('acked', '0')),
                   'pending': connection.execute('SELECT COUNT(*) FROM messages WHERE acked=0').fetchone()[0],
-                  'frozen': bool(connection.execute('SELECT 1 FROM delivery').fetchone()),
+                  'frozen': frozen is not None,
+                  'attempts': frozen[0] if frozen else 0,
+                  'next_attempt': frozen[1] if frozen else None,
                   'success_at': meta.get('success_at')}
-        print(json.dumps(result))
+        return result
     finally:
         connection.close()
 
 
+def status():
+    print(json.dumps(queue_status()))
+
+
+def recovery_check():
+    from runner import worker_status
+    doctor()
+    status()
+    worker_status()
+
+
+def restrict_chats(values):
+    from delivery_state import LEGACY_STATE
+    from runner import worker_lock
+    if CONFIG_DIR.is_symlink() or CONFIG_FILE.is_symlink() or not CONFIG_FILE.is_file():
+        raise RuntimeError("Configuration missing or symlinked")
+    with worker_lock():
+        config = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+        if config.get("enabled") is not False or not (STATE_DIR / DB_POINTER).is_file():
+            raise RuntimeError("Configure and disable a fresh profile first")
+        names = (*LEGACY_STATE, 'normal-delivery.sqlite')
+        if any((STATE_DIR / name).exists() or (STATE_DIR / name).is_symlink() for name in names):
+            raise RuntimeError("Use a fresh profile for a different chat scope")
+        config.setdefault("normal_line", {})["allowed_chat_pks"] = [int(pk) for pk in values]
+        config["normal_line"]["allowed_chat_pks"] = list(allowed_chat_pks(config))
+        save_config(config)
+    print("Chat scope saved. Synchronization is disabled.")
+
+
 def main():
     os.umask(0o077)
+    from runner import request_stop, start_cli, worker_status
+    if len(sys.argv) >= 2 and sys.argv[1] == "start":
+        start_cli(sys.argv[2:], doctor, queue_status)
+        return
+    if len(sys.argv) >= 2 and sys.argv[1] == "restrict-chats":
+        restrict_chats(sys.argv[2:])
+        return
+    if len(sys.argv) == 3 and sys.argv[1] == "snapshot":
+        from recovery import snapshot
+        snapshot(Path(sys.argv[2]))
+        return
     actions = {
         "init": initialize, "configure": configure, "doctor": doctor,
         "enable": enable, "disable": disable, "run": run, "status": status,
+        "stop": request_stop, "worker-status": worker_status, "recovery-check": recovery_check,
     }
     if len(sys.argv) != 2 or sys.argv[1] not in actions:
-        print("Usage: line-auto-sync init|configure|doctor|enable|disable|run|status")
+        print("Usage: line-auto-sync init|configure|doctor|enable|disable|run|status|worker-status|stop")
+        print("       line-auto-sync start [--send] [--resume-pending]")
+        print("       line-auto-sync recovery-check | snapshot NEW_PRIVATE_DIRECTORY")
+        print("       line-auto-sync restrict-chats CHAT_PK [CHAT_PK ...]")
         raise SystemExit(2)
     actions[sys.argv[1]]()
 

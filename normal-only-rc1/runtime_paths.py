@@ -27,6 +27,19 @@ def valid_endpoint(endpoint):
     except ValueError:
         return False
 
+def allowed_chat_pks(config):
+    raw = config.get("normal_line", {}).get("allowed_chat_pks")
+    if raw is None:
+        if config.get("source_id") == "MVP_IPAD_LIVE":
+            raise ValueError("live_source_requires_chat_allowlist")
+        return None
+    if (not isinstance(raw, list) or not 1 <= len(raw) <= 100
+            or any(type(pk) is not int or not 0 < pk <= 2**63 - 1 for pk in raw)
+            or len(set(raw)) != len(raw)):
+        raise ValueError("invalid_chat_allowlist")
+    return tuple(sorted(raw))
+
+
 def require_enabled():
     if CONFIG_DIR.is_symlink() or CONFIG_FILE.is_symlink() or STATE_DIR.is_symlink():
         raise RuntimeError('unsafe_runtime_symlink')
@@ -59,6 +72,7 @@ def require_enabled():
     if not STATE_DIR.is_dir():
         raise RuntimeError("State directory has not been initialized")
 
+    allowed_chat_pks(config)
     return config
 
 def read_credential(name):

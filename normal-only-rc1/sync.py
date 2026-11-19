@@ -4,7 +4,7 @@ import sqlite3
 import subprocess
 import sys
 from delivery_state import DeliveryError, DeliveryState
-from runtime_paths import STATE_DIR, require_enabled
+from runtime_paths import STATE_DIR, allowed_chat_pks, require_enabled
 
 
 def collect():
@@ -25,8 +25,20 @@ def collect():
             low = queue.initialize_cursor(high)
             if high < low:
                 raise DeliveryError('source_database_rewound')
-            rows = connection.execute('''SELECT Z_PK,ZTIMESTAMP,ZCHAT,ZSENDER,ZTEXT
-                FROM ZMESSAGE WHERE Z_PK>? AND Z_PK<=? AND length(ZTEXT)>0 ORDER BY Z_PK''', (low, high))
+            chats = allowed_chat_pks(config)
+            # A restricted chat can receive a late lower-PK row or a placeholder's
+            # text after the global high-water mark advanced. Reconcile only its
+            # post-activation rows; insert_rows deduplicates and preserves ACKs.
+            scan_low = int(queue.get('initial_baseline', str(low))) if chats is not None else low
+            if not 0 <= scan_low <= low:
+                raise DeliveryError('invalid_initial_baseline')
+            query = '''SELECT Z_PK,ZTIMESTAMP,ZCHAT,ZSENDER,ZTEXT
+                FROM ZMESSAGE WHERE Z_PK>? AND Z_PK<=? AND length(ZTEXT)>0'''
+            params = (scan_low, high)
+            if chats is not None:
+                query += ' AND ZCHAT IN (' + ','.join('?' for _ in chats) + ')'
+                params += chats
+            rows = connection.execute(query + ' ORDER BY Z_PK', params)
             count = queue.insert_rows(rows)
             queue.set('collected', high)
         return dict(queue.status(), added=count)
