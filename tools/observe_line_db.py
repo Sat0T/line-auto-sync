@@ -105,6 +105,7 @@ class Observer:
         finished = stamp()
         self.check_identity()
         result = dict(event='snapshot', read_started_utc=started, read_finished_utc=finished,
+                      marker_tracking=self.marker is not None,
                       elapsed_ms=round((time.monotonic() - self.started) * 1000),
                       scoped_rows=row[0], blank_rows=row[1], marker_rows=row[2],
                       marker_after_anchor=row[3], text_after_anchor=row[4], files=files,
@@ -134,7 +135,9 @@ class Observer:
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--profile', type=Path, required=True)
-    parser.add_argument('--marker', required=True)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument('--marker')
+    mode.add_argument('--scope-only', action='store_true')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--seconds', type=int, default=180)
     parser.add_argument('--interval', type=float, default=5)
@@ -168,6 +171,7 @@ def main(argv=None):
         fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, 'w', encoding='utf-8') as out:
             deadline = time.monotonic() + args.seconds
+            exit_reason = 'deadline'
             try:
                 while not stopped and time.monotonic() < deadline:
                     lock_before = lock.sample() if lock else None
@@ -178,12 +182,14 @@ def main(argv=None):
                     print(json.dumps(result), file=out, flush=True)
                     time.sleep(min(args.interval, max(0, deadline - time.monotonic())))
             except (OSError, sqlite3.Error, RuntimeError) as exc:
+                exit_reason = 'error'
                 # Do not expose exception messages containing paths or SQL data.
                 print(json.dumps({'event': 'observation_error', 'at_utc': stamp(),
                                   'error': type(exc).__name__}), file=out, flush=True)
                 raise SystemExit(1) from None
             finally:
-                print(json.dumps({'event': 'stopped', 'at_utc': stamp()}), file=out, flush=True)
+                print(json.dumps({'event': 'stopped', 'at_utc': stamp(),
+                                  'reason': 'signal' if stopped else exit_reason}), file=out, flush=True)
     finally:
         observer.close()
         if lock:

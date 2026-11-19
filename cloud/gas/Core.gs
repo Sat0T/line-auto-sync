@@ -10,72 +10,7 @@ var LasMvp = (function () {
     if (Array.isArray(x)) return '[' + x.map(canonical).join(',') + ']';
     if (object(x)) return '{' + Object.keys(x).sort().map(function (k) {
       return JSON.stringify(k) + ':' + canonical(x[k]);
-    }).join(',') + '}';
-    return JSON.stringify(x);
-  }
-  function pk(x) {
-    return typeof x === 'string' && /^[1-9][0-9]{0,18}$/.test(x) &&
-      (x.length < 19 || x <= '9223372036854775807');
-  }
-  function source(x) { return typeof x === 'string' && /^[A-Za-z0-9_.-]{1,64}$/.test(x); }
-  function jst(x) {
-    if (typeof x !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,6})?\+09:00$/.test(x)) return false;
-    var d = new Date(x), shifted = new Date(d.getTime() + 9 * 3600000);
-    return Number.isFinite(d.getTime()) && shifted.toISOString().slice(0, 19) === x.slice(0, 19);
-  }
-  function due(x) {
-    if (x === null) return true;
-    if (jst(x)) return true;
-    return typeof x === 'string' && /^\d{4}-\d\d-\d\d$/.test(x) &&
-      Number.isFinite(Date.parse(x + 'T00:00:00Z')) &&
-      new Date(x + 'T00:00:00Z').toISOString().slice(0, 10) === x;
-  }
-  function record(r, s) {
-    if (!keys(r, ['id', 'time', 'chat', 'sender', 'text', 'refs']) ||
-        !object(r.refs) || !pk(r.refs.message_pk) || r.id !== s + ':' + r.refs.message_pk ||
-        !jst(r.time) || typeof r.chat !== 'string' || !r.chat ||
-        typeof r.sender !== 'string' || !r.sender ||
-        !(r.text === null || typeof r.text === 'string')) fail('invalid_record');
-    var refs = r.refs;
-    if (!['message_pk', 'chat_pk', 'sender_pk'].every(function (k) { return k in refs; }) ||
-        Object.keys(refs).some(function (k) {
-          return ['message_pk', 'chat_pk', 'sender_pk', 'chat_mid', 'sender_mid'].indexOf(k) < 0;
-        })) fail('invalid_refs');
-    ['chat_pk', 'sender_pk'].forEach(function (k) {
-      if (refs[k] !== null && !pk(refs[k])) fail('invalid_refs');
-    });
-    ['chat_mid', 'sender_mid'].forEach(function (k) {
-      if (k in refs && refs[k] !== null && typeof refs[k] !== 'string') fail('invalid_refs');
-    });
-    try { encodeURIComponent(canonical(r)); } catch (_) { fail('invalid_unicode'); }
-    return r;
-  }
-  function decode(body, hash) {
-    if (typeof body !== 'string' || !body.endsWith('\n') || body.indexOf('\r') >= 0) fail('invalid_body');
-    var lines = body.trimEnd().split('\n'), m = JSON.parse(lines.shift());
-    if (!keys(m, ['v', 'kind', 'source', 'batch_id', 'part', 'parts', 'count', 'sha256']) ||
-        m.v !== 2 || m.kind !== 'line_batch' || !source(m.source) ||
-        m.part !== 1 || m.parts !== 1 || !Number.isInteger(m.count) || m.count < 1 || m.count > 500) fail('invalid_manifest');
-    var first = JSON.parse(lines[0]), records;
-    if (object(first) && first.format === 'C1') {
-      if (!keys(first, ['format', 'source', 'chats', 'senders']) || first.source !== m.source) fail('invalid_c1');
-      ['chats', 'senders'].forEach(function (k) {
-        var seen = new Set();
-        if (!Array.isArray(first[k]) || !first[k].length || first[k].length > 500) fail('invalid_dictionary');
-        first[k].forEach(function (v) {
-          if (!Array.isArray(v) || (v.length !== 2 && v.length !== 3) ||
-              typeof v[0] !== 'string' || !v[0] || !(v[1] === null || pk(v[1])) ||
-              (v.length === 3 && v[2] !== null && typeof v[2] !== 'string') || seen.has(canonical(v))) fail('invalid_dictionary');
-          seen.add(canonical(v));
-        });
-      });
-      var chats = new Set(), senders = new Set();
-      records = lines.slice(1).map(function (line) {
-        var a = JSON.parse(line);
-        if (!Array.isArray(a) || a.length !== 5 || !pk(a[0]) ||
-            !Number.isInteger(a[2]) || !Number.isInteger(a[3]) ||
-            a[2] < 0 || a[2] >= first.chats.length || a[3] < 0 || a[3] >= first.senders.length) fail('invalid_c1_row');
-        var c = first.chats[a[2]], u = first.senders[a[3]], refs = {message_pk: a[0], chat_pk: c[1], sender_pk: u[1]};
+ …927 tokens truncated…        var c = first.chats[a[2]], u = first.senders[a[3]], refs = {message_pk: a[0], chat_pk: c[1], sender_pk: u[1]};
         if (c.length === 3) refs.chat_mid = c[2];
         if (u.length === 3) refs.sender_mid = u[2];
         chats.add(a[2]); senders.add(a[3]);
@@ -189,7 +124,7 @@ var LasMvp = (function () {
       if (entry.result_hash && entry.result_hash !== hash) fail('result_conflict');
     });
     var prior = store.get('results', hash);
-    if (prior && prior.state === 'complete') return {duplicate: true, saved: 0};
+    if (prior && prior.state === 'complete') return {duplicate: true, saved: 0, result_hash: hash, task_ids: tasks.map(function (t) { return t.id; })};
     store.put('results', hash, {id: hash, state: 'preparing', count: tasks.length});
     tasks.forEach(function (t) { store.put('tasks', t.id, t); });
     value.processedMessageIDs.forEach(function (id) {
@@ -202,7 +137,7 @@ var LasMvp = (function () {
       store.put('batches', id, b);
     });
     store.put('results', hash, {id: hash, state: 'complete', count: tasks.length});
-    return {duplicate: false, saved: tasks.length};
+    return {duplicate: false, saved: tasks.length, result_hash: hash, task_ids: tasks.map(function (t) { return t.id; })};
   }
   return {canonical: canonical, decode: decode, accept: accept, forward: forward, result: result};
 }());

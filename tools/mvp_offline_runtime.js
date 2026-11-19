@@ -8,7 +8,7 @@ const clone = x => JSON.parse(JSON.stringify(x));
 
 function createRuntime(saved) {
   const state = saved || {properties: {}, books: {}, folders: {}, files: {}, mails: [], triggers: [], next: 1};
-  let sendFailure = false, lockBusy = false;
+  let sendFailure = false, lockBusy = false, writeFailure = null;
   function id(prefix) { return prefix + state.next++; }
   function file(key) {
     const f = state.files[key]; if (!f) throw Error('missing_fake_file');
@@ -24,9 +24,13 @@ function createRuntime(saved) {
     if (!rows) return null;
     return {
       setName: next => {state.books[book].sheets[next] = rows; delete state.books[book].sheets[name];},
-      appendRow: row => rows.push(clone(row)), setFrozenRows: () => {}, getMaxRows: () => 1000,
+      appendRow: row => {
+        if (writeFailure && writeFailure(name, row)) throw Error('synthetic_write_failure');
+        rows.push(clone(row));
+      }, setFrozenRows: () => {}, getMaxRows: () => 1000,
       getDataRange: () => ({getValues: () => clone(rows)}),
       getRange: (r, c) => ({setNumberFormat: () => {}, setValues: values => {
+        if (writeFailure && writeFailure(name, values)) throw Error('synthetic_write_failure');
         values.forEach((row, offset) => {
           while (rows.length < r + offset) rows.push([]);
           row.forEach((v, col) => { rows[r - 1 + offset][c - 1 + col] = v; });
@@ -86,7 +90,7 @@ function createRuntime(saved) {
   for (const name of ['Core.gs', 'App.gs'])
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../cloud/gas', name), 'utf8'), context, {filename: name});
   function makeMail(key, subject, body) {
-    return {id: key, subject, labelIds: ['SENT', 'INBOX'], payload: {
+    return {id: key, internalDate: String(Date.now()), subject, labelIds: ['SENT', 'INBOX'], payload: {
       mimeType: 'text/plain', headers: [{name: 'From', value: 'owner@example.invalid'},
         {name: 'To', value: 'owner@example.invalid'}, {name: 'Subject', value: subject}],
       body: {data: Buffer.from(body, 'utf8').toString('base64url')}
@@ -96,7 +100,12 @@ function createRuntime(saved) {
     bootstrap(source, token) {state.properties.LAS_SOURCE = source; state.properties.LAS_TOKEN = token; context.setupMvp();},
     receive(request) {return context.doPost({postData: {contents: JSON.stringify(request)}});},
     addResult(value) {state.mails.push(makeMail(id('result'), '[LINE-TASK-RESULT] ' + value.source + ' offline synthetic', JSON.stringify(value)));},
-    maintenance() {return context.mvpMaintenance();},
+    maintenance(event) {return context.mvpMaintenance(event);},
+    failWrites(predicate) {writeFailure = predicate;},
+    audits() {
+      const rows = state.books[state.properties.LAS_SHEET].sheets.result_import_audit || [];
+      return rows.slice(1).map(row => JSON.parse(row[1]));
+    },
     tasks() {
       const rows = state.books[state.properties.LAS_SHEET].sheets.tasks;
       return rows.slice(1).map(row => JSON.parse(row[9]));

@@ -112,3 +112,83 @@ test('dedicated source saves one dated reply and retains the owner completion', 
   assert.equal(runtime.tasks().length, 1);
   assert.equal(runtime.context.lasStore_(runtime.context.lasConfig_()).get('tasks', item.item_id).owner_state, 'completed');
 });
+
+function auditedFixture() {
+  const f = fixture(); f.runtime.receive(f.request); f.runtime.maintenance();
+  f.add = value => {
+    f.runtime.addResult(value);
+    const mail = f.runtime.state.mails.at(-1);
+    mail.internalDate = String(Number(f.runtime.state.properties.LAS_RESULT_AUDIT_SINCE_MS) + 1);
+    return mail;
+  };
+  return f;
+}
+
+test('prospective import links actual Gmail ID, digest, task IDs and observed GAS trigger separately', () => {
+  const {runtime, result, add} = auditedFixture(); const mail = add(result);
+  assert.equal(runtime.maintenance({triggerUid: '123456'}).results, 1);
+  const audit = runtime.audits(); assert.equal(audit.length, 2);
+  const done = audit[1], store = runtime.context.lasStore_(runtime.context.lasConfig_());
+  assert.equal(done.outcome, 'saved'); assert.equal(done.gmail_message_id, mail.id);
+  assert.equal(done.result_hash, store.get('messages', result.items[0].item_id).result_hash);
+  assert.deepEqual(done.task_ids, [result.items[0].item_id]);
+  assert.equal(done.trigger_uid_observed, '123456');
+  assert.equal(done.chatgpt_run_id, null); assert.equal(done.chatgpt_start_reason, null);
+  assert.equal(done.gas_native_execution_id, null);
+  assert.equal(audit[0].gas_import_attempt_id, done.gas_import_attempt_id);
+  assert.ok(Date.parse(done.recorded_at) >= Date.parse(done.import_started_at));
+  assert.equal(JSON.stringify(audit).includes('Submit synthetic form'), false);
+  runtime.maintenance(); assert.equal(runtime.audits().length, 2); // No polling-log growth.
+  add(result); runtime.maintenance();
+  assert.equal(runtime.audits().at(-1).outcome, 'duplicate');
+  assert.equal(runtime.audits().at(-1).saved, 0); assert.equal(runtime.tasks().length, 1);
+});
+
+test('legacy completed results receive no retrospective audit or task rewrite', () => {
+  const {runtime, result, add} = auditedFixture(); const mail = add(result); runtime.maintenance();
+  runtime.setOwnerState(result.items[0].item_id, 'completed');
+  const book = runtime.state.books[runtime.state.properties.LAS_SHEET];
+  const before = JSON.stringify(book.sheets.tasks);
+  delete book.sheets.result_import_audit; delete runtime.state.properties.LAS_RESULT_AUDIT_SINCE_MS;
+  mail.internalDate = '1'; runtime.maintenance();
+  assert.equal(runtime.audits().length, 0); assert.equal(JSON.stringify(book.sheets.tasks), before);
+});
+
+test('malformed mail and conflicting results are recorded as failures without raw contents', () => {
+  const {runtime, result, add} = auditedFixture(); const bad = add(result);
+  bad.payload.body.data = Buffer.from('PRIVATE_SYNTHETIC_MALFORMED').toString('base64url');
+  assert.equal(runtime.maintenance().invalid, 1);
+  assert.equal(runtime.audits().at(-1).outcome, 'failed');
+  assert.equal(runtime.audits().at(-1).result_hash, null);
+  assert.equal(runtime.tasks().length, 0);
+  add(result); runtime.maintenance();
+  const conflict = structuredClone(result); conflict.items[0].title = 'conflict'; add(conflict);
+  assert.ok(runtime.maintenance().invalid >= 1);
+  assert.equal(runtime.audits().at(-1).outcome, 'failed');
+  assert.equal(runtime.tasks().length, 1); assert.equal(runtime.tasks()[0].title, result.items[0].title);
+  assert.equal(JSON.stringify(runtime.audits()).includes('PRIVATE_SYNTHETIC_MALFORMED'), false);
+});
+
+test('partial save remains failed and retries idempotently while preserving owner state', () => {
+  const {runtime, result, add} = auditedFixture(); add(result);
+  runtime.failWrites((name, values) => name === 'messages' && JSON.parse(values[0][1]).result_hash);
+  assert.equal(runtime.maintenance().invalid, 1);
+  assert.equal(runtime.audits().at(-1).outcome, 'failed');
+  assert.equal(runtime.audits().at(-1).storage_state, 'partial_or_unknown');
+  assert.equal(runtime.tasks().length, 1);
+  runtime.setOwnerState(result.items[0].item_id, 'completed'); runtime.failWrites(null);
+  assert.equal(runtime.maintenance().results, 1);
+  assert.equal(runtime.audits().at(-1).outcome, 'saved'); assert.equal(runtime.tasks().length, 1);
+  assert.equal(runtime.tasks()[0].owner_state, 'completed');
+});
+
+test('audit-start failure blocks writes; completion-log failure never returns success', () => {
+  const {runtime, result, add} = auditedFixture(); add(result);
+  runtime.failWrites(name => name === 'result_import_audit');
+  assert.throws(() => runtime.maintenance(), /audit_write_failed/); assert.equal(runtime.tasks().length, 0);
+  runtime.failWrites((name, row) => name === 'result_import_audit' && JSON.parse(row[1]).outcome === 'saved');
+  assert.throws(() => runtime.maintenance(), /audit_write_failed/);
+  assert.equal(runtime.tasks().length, 1); assert.equal(runtime.audits().at(-1).outcome, 'started');
+  runtime.failWrites(null); assert.equal(runtime.maintenance().results, 0);
+  assert.equal(runtime.audits().at(-1).outcome, 'duplicate'); assert.equal(runtime.tasks().length, 1);
+});

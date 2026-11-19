@@ -119,11 +119,74 @@ function lasPlain_(part) {
   for (var i = 0; i < (part.parts || []).length; i++) { var text = lasPlain_(part.parts[i]); if (text !== null) return text; }
   return null;
 }
-function mvpMaintenance() {
+function lasResultAudit_(cfg, event) {
+  var p = PropertiesService.getScriptProperties(), since = p.getProperty('LAS_RESULT_AUDIT_SINCE_MS');
+  // Adopt prospectively. Do not reconstruct provenance for pre-adoption mail.
+  if (!since) { since = String(Date.now()); p.setProperty('LAS_RESULT_AUDIT_SINCE_MS', since); }
+  if (!/^[0-9]+$/.test(since) || !Number.isSafeInteger(Number(since))) throw new Error('invalid_audit_epoch');
+  var book = SpreadsheetApp.openById(cfg.sheet), sheet = book.getSheetByName('result_import_audit');
+  if (!sheet) {
+    sheet = book.insertSheet('result_import_audit'); sheet.appendRow(['attempt_id', 'data_json']);
+    sheet.setFrozenRows(1); sheet.getRange(1, 1, sheet.getMaxRows(), 2).setNumberFormat('@');
+  }
+  var run = {gas_import_attempt_id: Utilities.getUuid(), gas_native_execution_id: null,
+    trigger_uid_observed: event && /^[0-9]{1,64}$/.test(String(event.triggerUid || '')) ? String(event.triggerUid) : null,
+    chatgpt_run_id: null, chatgpt_start_reason: null};
+  var finished = Object.create(null);
+  sheet.getDataRange().getValues().slice(1).forEach(function (row) {
+    var prior = JSON.parse(row[1]);
+    if (prior.outcome === 'saved' || prior.outcome === 'duplicate') finished[prior.gmail_message_id] = true;
+  });
+  return {since: Number(since), seen: function (id) { return !!finished[id]; }, write: function (record) {
+    var value = Object.assign({}, run, record, {recorded_at: new Date().toISOString()});
+    try { sheet.appendRow([run.gas_import_attempt_id, JSON.stringify(value)]); SpreadsheetApp.flush(); }
+    catch (_) { var error = new Error('audit_write_failed'); error.auditWriteFailed = true; throw error; }
+    if (record.outcome === 'saved' || record.outcome === 'duplicate') finished[record.gmail_message_id] = true;
+  }};
+}
+function lasImportResult_(entry, cfg, store, audit) {
+  var m = Gmail.Users.Messages.get('me', entry.id, {format: 'full'});
+  if (!lasOwnMail_(m, cfg) || !(lasHeaders_(m, 'subject')[0] || '').startsWith('[LINE-TASK-RESULT] ' + cfg.source + ' ')) return null;
+  var internalDate = String(m.internalDate || '');
+  var tracked = /^[0-9]+$/.test(internalDate) && Number(internalDate) >= audit.since;
+  if (tracked && audit.seen(m.id)) return {duplicate: true, saved: 0};
+  var record = {gmail_message_id: m.id, gmail_internal_date_ms: internalDate || null,
+    import_started_at: new Date().toISOString(), result_hash: null, task_ids: [], saved: 0};
+  if (tracked) audit.write(Object.assign({}, record, {outcome: 'started'}));
+  var result, stage = 'decode';
+  try {
+    var text = lasPlain_(m.payload);
+    if (!text || Utilities.newBlob(text).getBytes().length > 180000) throw new Error('invalid_result_mail');
+    var value = JSON.parse(text);
+    if (value.source !== cfg.source) {
+      if (tracked) audit.write(Object.assign({}, record, {outcome: 'ignored_source'}));
+      return null;
+    }
+    stage = 'validate_and_save';
+    // Use the same digest contract as Core, even if persistence later fails.
+    if (Array.isArray(value.processedMessageIDs) && Array.isArray(value.items)) {
+      record.result_hash = store.hash(LasMvp.canonical({source: value.source,
+        processedMessageIDs: value.processedMessageIDs.slice().sort(), items: value.items}));
+      record.task_ids = value.items.map(function (item) { return item && item.item_id; })
+        .filter(function (id) { return typeof id === 'string' && id.length <= 100; }).slice(0, 100);
+    }
+    result = LasMvp.result(value, cfg, store);
+  } catch (error) {
+    if (error.auditWriteFailed) throw error;
+    if (tracked) audit.write(Object.assign({}, record, {outcome: 'failed', stage: stage,
+      storage_state: 'partial_or_unknown', error: 'result_import_failed'}));
+    throw error;
+  }
+  if (tracked) audit.write(Object.assign({}, record, {outcome: result.duplicate ? 'duplicate' : 'saved',
+    result_hash: result.result_hash, task_ids: result.task_ids, saved: result.saved, storage_state: 'complete'}));
+  return result;
+}
+function mvpMaintenance(event) {
   var lock = LockService.getScriptLock(); if (!lock.tryLock(5000)) return {busy: true};
   try {
     var cfg = lasConfig_(), store = lasStore_(cfg), report = {sent: 0, held: 0, results: 0, invalid: 0};
     if (Gmail.Users.getProfile('me').emailAddress.toLowerCase() !== cfg.owner.toLowerCase()) throw new Error('wrong_google_account');
+    var audit = lasResultAudit_(cfg, event);
     store.batchIds().slice(-30).forEach(function (id) {
       var b = store.get('batches', id); if (b.state !== 'accepted' || b.mail_state === 'sent') return;
       try { var r = LasMvp.forward(id, store, lasMailer_(cfg)); if (r.sent) report.sent++; if (r.held) report.held++; }
@@ -136,14 +199,8 @@ function mvpMaintenance() {
       page = Gmail.Users.Messages.list('me', {q: 'in:sent from:me to:me subject:"' + resultPrefix.trimEnd() + '" newer_than:30d -in:trash -in:spam', maxResults: 50, pageToken: next});
       (page.messages || []).forEach(function (entry) {
         try {
-          var m = Gmail.Users.Messages.get('me', entry.id, {format: 'full'});
-          if (!lasOwnMail_(m, cfg) || !(lasHeaders_(m, 'subject')[0] || '').startsWith(resultPrefix)) return;
-          var text = lasPlain_(m.payload);
-          if (!text || Utilities.newBlob(text).getBytes().length > 180000) throw new Error('invalid_result_mail');
-          var value = JSON.parse(text);
-          if (value.source !== cfg.source) return;
-          var result = LasMvp.result(value, cfg, store); if (!result.duplicate) report.results++;
-        } catch (_) { report.invalid++; }
+          var result = lasImportResult_(entry, cfg, store, audit); if (result && !result.duplicate) report.results++;
+        } catch (error) { if (error.auditWriteFailed) throw error; report.invalid++; }
       });
       next = page.nextPageToken; if (!next) break;
     }
