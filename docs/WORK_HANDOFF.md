@@ -17,13 +17,13 @@
 
 cloud/gas/App.gsに私用result_import_audit表への開始/終了記録を追加。GASが読み取ったGmailメッセージID・Gmail内部日付・取り込み時刻・結果ハッシュ・対象タスクIDと、saved/duplicate/failedを対応付ける。本文、タイトル、送信者、トーク名、認証情報は監査へ複製しない。失敗時の対象IDは入力で読んだ対象で、保存完了の証拠とはしない。途中失敗はpartial_or_unknown、後続の再処理でもタスクの増殖や本人の完了状態の上書きを防ぐ。
 
-gas_import_attempt_idは**GAS内で生成する取り込み処理の相関用UUID**で、Googleネイティブ実行IDやChatGPT実行IDではない。取得できないgas_native_execution_id/chatgpt_run_id/chatgpt_start_reasonはnull。イベントから取得できたtriggerUidだけをtrigger_uid_observedへ保存するが、これはトリガーの識別子であり実行IDやChatGPTの自然起動証明ではない。[Googleのイベント仕様](https://developers.google.com/apps-script/guides/triggers/events)と[実行プロセスの説明](https://developers.google.com/apps-script/api/concepts/processes)を確認。GASログの追加だけでChatGPT実行との鎖が完成するわけではない。
+gas_import_attempt_idは**GAS内で生成する取り込み処理の相関用UUID**で、Googleネイティブ実行IDやChatGPT実行IDではない。同じUUID・開始時刻・取得できたトリガー識別子だけをGASの私用実行ログにも出し、将来Google側で実行を閲覧した際に監査行と照合できるようにした。メールID・結果ハッシュ・タスクID・本文をconsoleへは出さない。取得できないgas_native_execution_id/chatgpt_run_id/chatgpt_start_reasonはnull。イベントから取得できたtriggerUidだけをtrigger_uid_observedへ保存するが、これはトリガーの識別子であり実行IDやChatGPTの自然起動証明ではない。[Googleのイベント仕様](https://developers.google.com/apps-script/guides/triggers/events)と[実行プロセスの説明](https://developers.google.com/apps-script/api/concepts/processes)を確認。GASログの追加だけでChatGPT実行との鎖が完成するわけではない。
 
 将来このコードを本人承認で配備した後、最初のmaintenanceで監査開始境界LAS_RESULT_AUDIT_SINCE_MSと追加表を作る設計。開始境界より古いメールや内部日付未取得のメールには遡及的なメール別監査を付けない。既存の4表や行は移行・初期化せず、旧対象へ補完しない。同じメールの成功済み監査があれば再ポーリングで監査行も増やさない。別メールで同じ結果を読んだ場合はduplicateを記録してタスクを増やさない。開始監査が書けなければ保存処理を始めず、終了監査の失敗も成功として返さない。ただしSheetsへの保存と監査は非原子的で、開始のみの記録は完了不明として残る。本文取得前のGmail取得失敗ではメール別監査を作れず、既存の集計invalidに留まる。監査表は読み込み量が増えるため長期規模は未評価。配備・新規表/境界作成・本番実行はいずれも今回未実施。
 
 ## 検証と残課題
 
-ローカルの変更直結試験は、観測準備/生成コードの実行・期限停止・シグナル停止・電源解放・設定とキューの保持など5件、既存観測7件、GAS入口と監査の合成試験11件が成功。GASでは旧形式互換、旧完了結果への遡及記録なし、同じ結果の重複排除、不正結果、途中保存失敗、監査開始/終了書込み失敗と再開を確認。最初の転送でCoreの一部欠落をCIが検出したため修復し、リモートとローカルのファイル一致を検査した。コード確定版69d17b7d874ce715b2ef475c4f110c9bf757881dの[CI run 44594486059](https://github.com/Sat0T/line-auto-sync/actions/runs/44594486059)は全6ジョブ成功（Python全81件をWindows/Linux・3.9/3.12で確認、ビルド、GAS合成11件と合成パイプライン、公開履歴監査）。手順書のPythonコマンドの構文と取得用コードハッシュもオフライン照合済み。以後の変更はこの記録と試験手順の文書のみ。
+ローカルの変更直結試験は、観測準備/生成コードの実行・期限停止・シグナル停止・電源解放・設定とキューの保持など5件、既存観測7件、GAS入口と監査の合成試験11件が成功。GASでは旧形式互換、旧完了結果への遡及記録なし、同じ結果の重複排除、不正結果、途中保存失敗、監査開始/終了書込み失敗と再開を確認。最初の転送でCoreの一部欠落をCIが検出したため修復し、リモートとローカルのファイル一致を検査した。コード確定版62f5e64154066c479a5369415bc6f0684d2f6867の[CI run 44595301181](https://github.com/Sat0T/line-auto-sync/actions/runs/44595301181)は全6ジョブ成功（Python全81件をWindows/Linux・3.9/3.12で確認、ビルド、GAS合成11件と合成パイプライン、公開履歴監査）。手順書のPythonコマンドの構文と取得用コードハッシュもオフライン照合済み。以後の変更はこの記録と試験手順の文書のみ。
 
 残るのは実機の読み取り環境観測、その結果に応じたLINE側の同期/維持の切り分け、本人が別途許可した同一新着の解除前DB反映→GAS受理→Gmail配送の照合、ChatGPT自然起動と実際の結果作成を結ぶ証拠。長時間運用・通信断後の自動復旧も別途未検証。今回の準備・監査追加・CI成功で完全自動運転や100%完成とはしない。PR未マージ。
 
