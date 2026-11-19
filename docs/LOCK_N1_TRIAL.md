@@ -33,7 +33,7 @@ py tools/manage_ipad.py prepare --config .las-private/ipad-connection.json --jou
 py tools/manage_ipad.py ui-status --config .las-private/ipad-connection.json --journal .las-private/n1-journal.json --run n1-20261120
 ```
 
-doctorやprepareが失敗したらstatusと原因確認へ移り、startしない。既存runがある場合も新しいrunへ逃げて再送せず、その状態を照合する。stage版と端末側ファイルのhash検査が合格しても、配送の合格とは数えない。既存GASの配備/strict OK応答契約は別途実際に確認し、公開ソースだけで確認済みにしない。計画の初期値は未確認。
+doctorやprepareが失敗したらstatusと原因確認へ移り、startしない。既存runがある場合も新しいrunへ逃げて再送せず、その状態を照合する。stage版と端末側ファイルのhash検査が合格しても、配送の合格とは数えない。既存GASの配備/strict OK応答契約は別途実際に確認し、公開ソースだけで確認済みにしない。計画の初期値は未確認。実際の配備先との一致・応答契約・本人宛転送先を読み取りで確認できるまでは、startと試験文入力へ進まない。既存batches/messages台帳とGmail fullを回収できる経路も先に確保し、証拠取得を未配備の監査機能で代用しない。
 
 ## 撮影・起動・入力・解除
 

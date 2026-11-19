@@ -358,6 +358,22 @@ class ManagedTrialTests(unittest.TestCase):
         shell = shutil.which('pwsh') or shutil.which('powershell')
         if not shell:self.skipTest('existing PowerShell unavailable')
         directory = self.root / 'private-native'; directory.mkdir()
+        # Elevated Windows runners may create fixtures owned by Administrators.
+        # Production deliberately refuses a foreign owner; establish ownership
+        # only on this newly-created disposable test directory, never on a key.
+        own_fixture = r'''
+$ErrorActionPreference='Stop'
+$sid=[Security.Principal.WindowsIdentity]::GetCurrent().User
+$acl=Get-Acl -LiteralPath $env:LAS_PRIVATE_KEY_ITEM
+$acl.SetOwner($sid)
+Set-Acl -LiteralPath $env:LAS_PRIVATE_KEY_ITEM -AclObject $acl
+if((Get-Acl -LiteralPath $env:LAS_PRIVATE_KEY_ITEM).GetOwner([Security.Principal.SecurityIdentifier]).Value -ne $sid.Value){throw 'synthetic_owner_setup_failed'}
+'''
+        fixture_env = dict(os.environ, LAS_PRIVATE_KEY_ITEM=str(directory.absolute()))
+        fixture_env.pop('PSModulePath', None)
+        owned = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-Command', own_fixture],
+                               env=fixture_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15)
+        self.assertEqual(owned.returncode, 0, 'synthetic directory ownership could not be established')
         manager.protect_private_path(directory, True)
         fixture = directory / 'synthetic.txt'; fixture.write_text('synthetic file, no key')
         setup = r'''
