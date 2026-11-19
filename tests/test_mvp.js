@@ -136,6 +136,12 @@ test('prospective import links actual Gmail ID, digest, task IDs and observed GA
   assert.equal(done.chatgpt_run_id, null); assert.equal(done.chatgpt_start_reason, null);
   assert.equal(done.gas_native_execution_id, null);
   assert.equal(audit[0].gas_import_attempt_id, done.gas_import_attempt_id);
+  const executionLog = runtime.state.logs.map(line => JSON.parse(line))
+    .find(row => row.gas_import_attempt_id === done.gas_import_attempt_id);
+  assert.equal(executionLog.event, 'result_import_run');
+  assert.equal(executionLog.trigger_uid_observed, '123456');
+  assert.equal('gmail_message_id' in executionLog, false);
+  assert.equal('result_hash' in executionLog, false);
   assert.ok(Date.parse(done.recorded_at) >= Date.parse(done.import_started_at));
   assert.equal(JSON.stringify(audit).includes('Submit synthetic form'), false);
   runtime.maintenance(); assert.equal(runtime.audits().length, 2); // No polling-log growth.

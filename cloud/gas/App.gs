@@ -132,6 +132,10 @@ function lasResultAudit_(cfg, event) {
   var run = {gas_import_attempt_id: Utilities.getUuid(), gas_native_execution_id: null,
     trigger_uid_observed: event && /^[0-9]{1,64}$/.test(String(event.triggerUid || '')) ? String(event.triggerUid) : null,
     chatgpt_run_id: null, chatgpt_start_reason: null};
+  // Correlate this audit UUID with the actual GAS execution's private console.
+  // Never log mail IDs, result hashes, task IDs or message contents here.
+  console.log(JSON.stringify({event: 'result_import_run', gas_import_attempt_id: run.gas_import_attempt_id,
+    started_at: new Date().toISOString(), trigger_uid_observed: run.trigger_uid_observed}));
   var finished = Object.create(null);
   sheet.getDataRange().getValues().slice(1).forEach(function (row) {
     var prior = JSON.parse(row[1]);

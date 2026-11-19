@@ -8,6 +8,7 @@ const clone = x => JSON.parse(JSON.stringify(x));
 
 function createRuntime(saved) {
   const state = saved || {properties: {}, books: {}, folders: {}, files: {}, mails: [], triggers: [], next: 1};
+  if (!Array.isArray(state.logs)) state.logs = [];
   let sendFailure = false, lockBusy = false, writeFailure = null;
   function id(prefix) { return prefix + state.next++; }
   function file(key) {
@@ -45,7 +46,7 @@ function createRuntime(saved) {
       insertSheet: name => {state.books[key].sheets[name] = []; return sheet(key, name);},
       setSpreadsheetTimeZone: () => {}};
   }
-  const context = vm.createContext({console: {log: () => {}},
+  const context = vm.createContext({console: {log: value => state.logs.push(String(value))},
     PropertiesService: {getScriptProperties: () => ({
       getProperty: k => state.properties[k] || null,
       setProperty: (k, v) => {state.properties[k] = v;}
