@@ -1,6 +1,7 @@
 """Bounded, single-message lock-screen delivery using the installed RC6 worker."""
 from contextlib import closing, contextmanager
 import ctypes as C
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -9,12 +10,32 @@ import signal
 import sqlite3
 import sys
 import time
+from urllib.parse import urlsplit
 
 BASE = Path('/var/mobile/las-keep-lock-power')
 LABEL = 'com.sat0t.line-auto-sync.keep-lock-power'
 LIBEXEC = '/var/jb/usr/libexec/line-auto-sync'
 TEXT = 'ロック中に届くか確認する試験メモ'
 SECONDS = 240
+
+
+def config_digest(config):
+    return hashlib.sha256(json.dumps(
+        {k: v for k, v in config.items() if k != 'enabled'},
+        sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def validate_profile(config):
+    baseline = json.loads((Path.home() / 'las-rc6-keep-check/config/config.json').read_text(encoding='utf-8'))
+    chats = config['normal_line']['allowed_chat_pks']
+    url = urlsplit(config['transport']['endpoint'])
+    if (config['source_id'] != 'MVP_IPAD_LIVE' or len(chats) != 1
+            or baseline['normal_line']['allowed_chat_pks'] != chats
+            or baseline['line_db'] != config['line_db']
+            or url.scheme != 'https' or url.netloc != 'script.google.com'
+            or not url.path.startswith('/macros/s/') or not url.path.endswith('/exec')
+            or url.query or url.fragment):
+        raise RuntimeError('trial_profile_mismatch')
 
 
 @contextmanager
@@ -92,6 +113,8 @@ def run(runtime, sync, sender, decode, log):
     with stay_awake():
         log('awake')
         while not stopped and time.time() < deadline:
+            if runtime.require_enabled() != config:
+                raise RuntimeError('configuration_changed')
             try:
                 with closing(sqlite3.connect(database.as_uri() + '?mode=ro', uri=True, timeout=2)) as db:
                     hits = db.execute(
@@ -118,7 +141,7 @@ def run(runtime, sync, sender, decode, log):
             time.sleep(5)
 
 
-def worker():
+def worker(expected_digest):
     import cli
     import runner
     import runtime_paths as runtime
@@ -131,6 +154,9 @@ def worker():
             print(json.dumps(dict(at=int(time.time()), event=event, **fields)), file=stream, flush=True)
 
         try:
+            config = json.loads(runtime.CONFIG_FILE.read_text(encoding='utf-8'))
+            if config_digest(config) != expected_digest or config['enabled'] is not False:
+                raise RuntimeError('trial_profile_changed')
             if cli.queue_status().get('pending') != 0:
                 raise RuntimeError('expected_empty_trial_queue')
             cli.enable()
@@ -146,8 +172,18 @@ def worker():
 
 def main():
     configure_runtime()
-    if sys.argv[1:] == ['worker']:
-        worker()
+    if len(sys.argv) == 3 and sys.argv[1] == 'worker':
+        worker(sys.argv[2])
+        return
+    if sys.argv[1:] in (['stop'], ['status']):
+        import cli
+        if sys.argv[1] == 'stop':
+            cli.disable()
+        import runtime_paths as runtime
+        print(json.dumps({'enabled': json.loads(runtime.CONFIG_FILE.read_text(encoding='utf-8'))['enabled']}))
+        cli.status()
+        if (BASE / 'power-lock.jsonl').is_file():
+            print('\n'.join((BASE / 'power-lock.jsonl').read_text(encoding='utf-8').splitlines()[-12:]))
         return
     if len(sys.argv) != 2:
         raise SystemExit('provide a new plist path')
@@ -162,13 +198,16 @@ def main():
         cfg = json.loads(runtime.CONFIG_FILE.read_text(encoding='utf-8'))
         if cfg['enabled'] or cli.queue_status().get('pending') != 0 or (BASE / 'power-lock.jsonl').exists():
             raise RuntimeError('existing_trial_requires_review')
+    cfg = json.loads(runtime.CONFIG_FILE.read_text(encoding='utf-8'))
+    validate_profile(cfg)
     spec = {
         'Label': LABEL,
         'ProgramArguments': ['/var/jb/usr/bin/python3', '-c',
-                             Path(__file__).read_text(encoding='utf-8'), 'worker'],
+                             Path(__file__).read_text(encoding='utf-8'), 'worker', config_digest(cfg)],
         'UserName': 'mobile',
         'RunAtLoad': True,
         'Umask': 0o077,
+        'EnvironmentVariables': {'HOME': str(Path.home())},
     }
     with Path(sys.argv[1]).open('xb') as out:
         plistlib.dump(spec, out)
