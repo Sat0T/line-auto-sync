@@ -198,3 +198,16 @@ test('audit-start failure blocks writes; completion-log failure never returns su
   runtime.failWrites(null); assert.equal(runtime.maintenance().results, 0);
   assert.equal(runtime.audits().at(-1).outcome, 'duplicate'); assert.equal(runtime.tasks().length, 1);
 });
+
+test('receiver OK and accepted ledger do not imply successful Gmail forwarding', () => {
+  const {runtime, request, manifest} = fixture();
+  runtime.context.MailApp.sendEmail = () => { throw Error('synthetic failure before mail exists'); };
+  assert.equal(runtime.receive(request), 'OK');
+  const store = runtime.context.lasStore_(runtime.context.lasConfig_());
+  const batch = store.get('batches', manifest.batch_id);
+  assert.equal(batch.state, 'accepted');
+  assert.equal(batch.mail_state, 'sending');
+  assert.equal(runtime.state.mails.length, 0);
+  assert.equal(runtime.maintenance().held, 1);
+  assert.equal(runtime.state.mails.length, 0);
+});
