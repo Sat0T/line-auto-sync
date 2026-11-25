@@ -6,6 +6,8 @@
 
 PCにはWindows OpenSSH clientとiCloud Driveの既存フォルダがある。現在の調査では接続中のApple USB機器や、動作するUSB SSH proxyは確認できない。USBケーブルの接続だけでSSHが成立するとは扱わない。
 
+今回、転送bundleのpayload22ファイル＋manifestをPCの新しいiCloudフォルダへコピーし、PC上の読戻しhash一致を確認済み。私用NewTermコマンド集（6コマンド）も固定コード版・実manifestへ結び付けて作成し、埋込みPythonの構文を検証した。端末で実行しておらず、iPad到達や認証は未確認。
+
 優先経路は**iCloud Driveで公開鍵セットと固定コードを渡し、同じ信頼できるLAN上の既存OpenSSHへ鍵認証**する方法。iPad自身のWi-Fiアドレスと公開ホスト鍵を私用offerに出し、本人の独立したfingerprint照合後にだけPC設定を生成する。IP推測・LAN走査・初回鍵の自動承認・既定パスワードは使わない。PCにiCloudフォルダがあることと、対象iPadまで同期済みであることは別の確認。
 
 Appleの[WindowsのiCloud Driveの説明](https://support.apple.com/en-ng/guide/icloud-windows/icwddbc813bd/icloud)に従い、iPadの「ファイル → iCloud Drive」で転送フォルダを探す。PC側の実パス、manifestの実hash、具体的な一括コマンドは私用ファイルに保持し、公開文書へ載せない。

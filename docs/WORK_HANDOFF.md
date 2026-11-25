@@ -1,5 +1,7 @@
 # 初回接続の具体化と停止処理修正 — 2026-11-25
 
+最終保存のコード版24be738f565c54dd2dede6b710b514d38bb96303の[CI run 45564946582](https://github.com/Sat0T/line-auto-sync/actions/runs/45564946582)は全6ジョブ成功。Python179件をWindows/Linux・3.9/3.12で確認（WindowsはPOSIX専用8件skip、LinuxはWindows専用1件skip）、私用deb生成/展開、GAS合成12件と合成pipeline、公開履歴監査が成功。以後はこの結果の文書追記のみで、CIを再実行しない。新bootstrap・キット・私用転送manifestの一致と旧キットの保持も確認した。本人用NewTerm6コマンド集とWork用PC再開手順を私用保存済み。端末への到達・実接続・本番送信を成功扱いにはしない。
+
 **未完成・8/10工程。新しい実機接続・起動・送信は未実施。** 本人の事前承認は継続。再開時にPR #10 headとローカル作業状態を確認した。本人は現在端末を接続できないと回答。PC画面操作も本人のEscで停止されたため、その後GUI操作は行わず、独立したコード修正・オフライン検証・転送準備を完了した。同じ無送信DB観測、旧2件の再処理や旧履歴検索は繰り返していない。
 
 ROOT_ACTION stop/statusを最小修正。各ドメインのbootoutと登録確認を個別に継続し、timeout/OSError/不明な失敗応答はunknown（registered:null）と理由に保持。両方が明示的に未登録の時だけ登録解除完了とする。stop全体40秒/status10秒、privileged45秒/SSH95秒を維持。予算枯渇時は未確認を残し、新しい命令を開始しない。片側timeout・状態問い合わせ失敗・残処理継続・残存登録・時間予算について回帰6件を追加。既定N1 base/labelと固定文は維持し、汎用base拡張を加えていない。
