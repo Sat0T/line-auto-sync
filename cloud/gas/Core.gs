@@ -126,15 +126,15 @@ var LasMvp = (function () {
     if (!b || b.state !== 'accepted') fail('not_accepted');
     if (b.mail_state === 'sent') return {sent: false, duplicate: true};
     var subject = '[LINE-TASK-BATCH] ' + b.source + ' ' + b.id;
+    var body = store.loadBody(b.file_id);
+    if (store.hash(body) !== b.body_hash) fail('stored_body_corrupt');
     if (b.mail_state === 'sending') {
-      var found = mailer.find(subject);
+      var found = mailer.find(subject, body);
       if (!found) return {held: true, reason: 'mail_result_unknown'};
       b.mail_state = 'sent'; b.mail_id = found;
       store.put('batches', id, b);
       return {recovered: true};
     }
-    var body = store.loadBody(b.file_id);
-    if (store.hash(body) !== b.body_hash) fail('stored_body_corrupt');
     b.mail_state = 'sending'; store.put('batches', id, b);
     // A send and the state write are not atomic. Ambiguous sends are held,
     // reconciled with Sent, never blindly repeated.

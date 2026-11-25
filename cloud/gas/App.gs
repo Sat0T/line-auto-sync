@@ -77,13 +77,17 @@ function lasMailer_(cfg) {
       MailApp.sendEmail({to: cfg.owner, subject: subject, body: body, name: 'LINE Auto Sync MVP'});
       return null; // MailApp has no durable message ID; a Sent lookup reconciles ambiguity.
     },
-    find: function (subject) {
+    find: function (subject, expectedBody) {
       var found = Gmail.Users.Messages.list('me', {q: 'in:sent from:me to:me subject:"' + subject + '"', maxResults: 20});
+      // An incomplete candidate set cannot establish a unique matching receipt.
+      if (found.nextPageToken) throw new Error('mail_search_incomplete');
+      var matches = [];
       for (var i = 0; i < (found.messages || []).length; i++) {
-        var m = Gmail.Users.Messages.get('me', found.messages[i].id, {format: 'metadata', metadataHeaders: ['Subject', 'From', 'To']});
-        if (lasOwnMail_(m, cfg) && lasHeaders_(m, 'subject')[0] === subject) return m.id;
+        var m = Gmail.Users.Messages.get('me', found.messages[i].id, {format: 'full'});
+        if (lasOwnMail_(m, cfg) && lasHeaders_(m, 'subject')[0] === subject &&
+            lasPlain_(m.payload) === expectedBody) matches.push(m.id);
       }
-      return null;
+      return matches.length === 1 ? matches[0] : null;
     }
   };
 }
@@ -110,7 +114,9 @@ function lasPlain_(part) {
     var type = lasHeaders_({payload: part}, 'content-type')[0] || '';
     if (!/format\s*=\s*"?flowed/i.test(type)) return text;
     var delsp = /delsp\s*=\s*"?yes/i.test(type);
-    return text.split('\n').map(function (line) {
+    return text.split('\n').map(function (line, index, lines) {
+      // split() leaves an empty sentinel after a terminal LF, not another line.
+      if (index === lines.length - 1 && line === '') return '';
       if (line.startsWith('>') || line === '-- ') throw new Error('quoted_machine_json');
       if (line.startsWith(' ')) line = line.slice(1);
       return line.endsWith(' ') ? (delsp ? line.slice(0, -1) : line) : line + '\n';

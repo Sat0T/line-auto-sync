@@ -52,6 +52,22 @@ def request_stop():
     print('Stop requested. An in-progress network request may finish.')
 
 
+def delivery_phase(report):
+    """Name the observed stage without calling a skipped attempt a success.
+
+    A strict legacy OK is an application response, not proof of Gmail delivery.
+    Limit reasons to this sender's vocabulary rather than logging remote text.
+    """
+    if report.get('error'):
+        return 'delivery_unconfirmed'
+    if report.get('sent') is True:
+        return 'application_accepted'
+    reason = report.get('reason')
+    if reason in ('retry_wait', 'hourly_gate', 'empty', 'already_acknowledged'):
+        return reason
+    return 'delivery_not_attempted'
+
+
 def start(doctor, queue_status, *, send=False, resume_pending=False,
           collect_step=collect, send_step=send_once, sleep=time.sleep):
     config = require_enabled()
@@ -83,7 +99,7 @@ def start(doctor, queue_status, *, send=False, resume_pending=False,
                     collect_step()
                     if send and not should_stop() and require_enabled() == config:
                         report = send_step()
-                        state['last_result'] = 'delivery_unconfirmed' if report.get('error') else 'ok'
+                        state['last_result'] = delivery_phase(report)
                     else:
                         state['last_result'] = 'collected'
                 except Exception as exc:

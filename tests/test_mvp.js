@@ -211,3 +211,62 @@ test('receiver OK and accepted ledger do not imply successful Gmail forwarding',
   assert.equal(runtime.maintenance().held, 1);
   assert.equal(runtime.state.mails.length, 0);
 });
+
+test('ambiguous mail reconciliation requires the stored body, not just the same subject', () => {
+  const {runtime, request, manifest} = fixture(); runtime.loseSendResponse(true);
+  assert.equal(runtime.receive(request), 'OK');
+  const correct = structuredClone(runtime.state.mails[0]); correct.id = 'synthetic-correct-mail';
+  runtime.state.mails[0].payload.body.data = Buffer.from('different synthetic body').toString('base64url');
+  runtime.loseSendResponse(false);
+  const store = runtime.context.lasStore_(runtime.context.lasConfig_());
+  assert.equal(runtime.maintenance().held, 1);
+  assert.equal(store.get('batches', manifest.batch_id).mail_state, 'sending');
+  assert.equal(runtime.state.mails.length, 1);
+  runtime.state.mails.push(correct);
+  assert.equal(runtime.maintenance().held, 0);
+  assert.equal(store.get('batches', manifest.batch_id).mail_id, correct.id);
+  assert.equal(runtime.state.mails.length, 2);
+});
+
+test('multiple exact Sent matches retain ambiguity and never cause another send', () => {
+  const {runtime, request, manifest} = fixture(); runtime.loseSendResponse(true); runtime.receive(request);
+  const duplicate = structuredClone(runtime.state.mails[0]); duplicate.id = 'synthetic-second-exact-mail';
+  runtime.state.mails.push(duplicate); runtime.loseSendResponse(false);
+  assert.equal(runtime.maintenance().held, 1);
+  const store = runtime.context.lasStore_(runtime.context.lasConfig_());
+  assert.equal(store.get('batches', manifest.batch_id).mail_state, 'sending');
+  assert.equal(runtime.state.mails.length, 2);
+});
+
+test('incomplete Sent search and corrupt stored payload cannot become recovered success', () => {
+  const {runtime, request, manifest} = fixture(); runtime.loseSendResponse(true); runtime.receive(request);
+  runtime.loseSendResponse(false);
+  const list = runtime.context.Gmail.Users.Messages.list;
+  runtime.context.Gmail.Users.Messages.list = (owner, options) => {
+    const page = list(owner, options);
+    if (options.q.includes('[LINE-TASK-BATCH]')) page.nextPageToken = 'synthetic-more-candidates';
+    return page;
+  };
+  const store = runtime.context.lasStore_(runtime.context.lasConfig_());
+  assert.equal(runtime.maintenance().held, 1);
+  assert.equal(store.get('batches', manifest.batch_id).mail_state, 'sending');
+  runtime.context.Gmail.Users.Messages.list = list;
+  const batch = store.get('batches', manifest.batch_id);
+  runtime.state.files[batch.file_id].body = 'synthetic corrupted stored body';
+  assert.equal(runtime.maintenance().held, 1);
+  assert.equal(store.get('batches', manifest.batch_id).mail_state, 'sending');
+  assert.equal(runtime.state.mails.length, 1);
+});
+
+test('exact Sent receipt can be reconciled after MIME flowed wrapping without an extra EOF line', () => {
+  const {runtime, request, manifest} = fixture(); runtime.loseSendResponse(true); runtime.receive(request);
+  runtime.loseSendResponse(false);
+  const mail = runtime.state.mails[0], part = mail.payload;
+  const body = Buffer.from(part.body.data, 'base64url').toString('utf8');
+  part.headers.push({name: 'Content-Type', value: 'text/plain; format=flowed; delsp=yes'});
+  part.body.data = Buffer.from(body.replace('Synthetic form request', 'Synthetic form re \r\n quest')).toString('base64url');
+  assert.equal(runtime.maintenance().held, 0);
+  const store = runtime.context.lasStore_(runtime.context.lasConfig_());
+  assert.equal(store.get('batches', manifest.batch_id).mail_id, mail.id);
+  assert.equal(runtime.state.mails.length, 1);
+});
