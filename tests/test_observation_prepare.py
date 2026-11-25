@@ -1,6 +1,6 @@
 """Offline launch-plan execution with fake power hold, no worker or iOS calls."""
 import ast
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 import importlib.util
 import json
 from pathlib import Path
@@ -25,12 +25,16 @@ class ObservationPreparationTests(unittest.TestCase):
         (self.profile / 'state').mkdir()
         self.database = self.root / 'line' / 'database.sqlite'
         self.database.parent.mkdir()
-        with sqlite3.connect(self.database) as db:
+        # SQLite's transaction context commits/rolls back but does not close.
+        # Close both fixture handles before Windows removes the temp directory.
+        with closing(sqlite3.connect(self.database)) as db:
             db.execute('CREATE TABLE ZMESSAGE(Z_PK INTEGER,ZCHAT INTEGER,ZTEXT TEXT)')
             db.execute("INSERT INTO ZMESSAGE VALUES(12,7,'synthetic private body')")
-        with sqlite3.connect(self.profile / 'state/normal-delivery.sqlite') as db:
+            db.commit()
+        with closing(sqlite3.connect(self.profile / 'state/normal-delivery.sqlite')) as db:
             db.execute('CREATE TABLE meta(key TEXT,value TEXT)')
             db.execute("INSERT INTO meta VALUES('collected','11')")
+            db.commit()
         self.config = self.profile / 'config/config.json'
         self.config.write_text(json.dumps({'enabled': False, 'source_id': 'MVP_IPAD_LIVE',
             'line_db': str(self.database), 'normal_line': {'allowed_chat_pks': [7]}}))

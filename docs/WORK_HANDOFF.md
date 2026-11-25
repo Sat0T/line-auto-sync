@@ -12,7 +12,9 @@
 
 日常運用の未達だった送信mode・異常終了後の同じ状態からの再開・固定daily専用サービスの登録/停止経路を実装。既存collector/sender/queue/backoffを再利用し、送信は明示opt-inと実配備/本人宛の事前照合が前提。初回は旧queueを拒否し、新しいdaily profileをbaselineから開始。以後は同bindingの承認済みdaily状態を保持してresumeする。固定root controller/bootstrapは既存の両domainを独立処理するbounded stop/statusを再利用し、N1 bridgeは不変更。収集前後の容量閾値でデータを消さず正常停止し、最新health/statusだけを保存する。変更直結15件は成功。実launchdへの適用・異常再起動・実通信断復旧・長期容量はiPad接続後にしか確認できない。容量閾値は1collect前後の確認であり、絶対hard capではない。
 
-今回のコード変更に必要なCIは結果確定後に追記する。GAS入力配送だけで自然解析・ロック中配送・日常運転完成を判定しない。iPadは初回接続・鍵登録・ホスト鍵照合・sudoが未実施で、既存の鍵/転送セット/本人6コマンド/旧キットは保持。PR未マージ・追加課金なし。
+実GASの保守は更新後の自然な時間主導型で完了し、監査相関UUID/実際のtriggerUidとsent/held/results/invalid各0のconsoleを確認。ScriptPropertiesの監査開始境界が新規入力より前であることも直接確認した。台帳の同一対象の受理・送信状態と保存本文hashは一致、解析はpending、監査表は作成済みで結果行0。ChatGPTのUIは時刻指定でなく条件付きの「監視中」表示だったため、この未処理の架空1件の存在自体を処理条件とし、通知不要でも解析/保存を省略しないことを今回の例外内だけに明記して保存後一致確認。前倒しや即時起動は使わない。自然な結果メールとタスク保存は引き続き未確認。
+
+初回CIではGAS18件/LinuxのPythonは成功したが、合成pipelineが監査開始前に合成結果を作る順序と、Windowsの観測fixtureがSQLite接続を確実に閉じない問題で失敗。production guardを弱めず、demoは監査採用後に合成結果を作り、fixtureの2接続は明示close/commitへ修正した。合成demoと対象の観測5件は成功。修正版CIの結果は確定後に追記する。GAS入力配送だけで自然解析・ロック中配送・日常運転完成を判定しない。iPadは初回接続・鍵登録・ホスト鍵照合・sudoが未実施で、既存の鍵/転送セット/本人6コマンド/旧キットは保持。PR未マージ・追加課金なし。
 
 ---
 

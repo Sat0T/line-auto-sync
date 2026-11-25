@@ -82,6 +82,10 @@ def demo(result_path, output):
         assert sender.send_once(post, now=10000)['error'] == 'delivery_unconfirmed'
         assert sender.send_once(post, now=10060)['sent']
         assert calls[0] == calls[1]
+        # Adopt prospective auditing before creating new synthetic result mail.
+        # Otherwise its timestamp predates the first maintenance boundary.
+        adopted = call({'action': 'maintenance'})
+        assert adopted['tasks'] == []
         ai_result = json.loads(result_path.read_text(encoding='utf-8'))
         first = call({'action': 'result', 'value': ai_result})
         replay = call({'action': 'result', 'value': ai_result})
