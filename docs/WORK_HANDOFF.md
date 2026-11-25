@@ -1,3 +1,23 @@
+# iPadなしのCloud・運用修正と次の実機準備 — 2026-11-25
+
+**未完成・8/10工程を維持。今回の実GAS配備・新規送信・手動解析・実機起動なし。** 本人は端末操作不可、PC GUIの再開も禁止。初回認証は依頼せず、コネクタ・CLI・ローカル開発だけで独立作業を進めた。再開点3e07c13とPR #10 head一致、旧2件再処理/旧履歴再検索なし。鍵・旧キット・元の公開鍵セット・本人6コマンド・旧状態を保持した。
+
+Cloudで2つの実不具合を再現して修正。曖昧な送信後のSent照合が同件名の別本文でも配送成功へ回復できたため、保存本文hashを検証し、full MIME復元本文まで一致する一意の1通だけを採用するようにした。複数一致・検索途中ページ・本文破損は保留し再送しない。flowed MIME復元の末尾LF二重追加も最小修正。Node合成16件成功（新規4件）。既存の結果監査/旧形式互換/重複取込/部分失敗復旧を維持。本番では未確認。修正はaefef3dで途中保存済み。
+
+クラウドの正規アクセスを新経路から確認したが、実配備project/version/endpointとScriptProperties bindingは未取得。候補台帳と過去のbatch保存先の関係はmetadataで裏付けた一方、追加metadata・セル参照・batch field名・GAS公式通知から配備識別情報は取得できなかった。同じ検索は再実行不要。ローカルclasp/Google ADC設定も確認範囲に無い。現在のconnectorはApps Script API認証を提供しない。実配備版と設定を確認できるOAuth/APIまたは正規エディタアクセスが別途必要で、**この障害はiPad接続とは独立**。公開ソース/名前/HEADから実配備確認済みにしない。未配備監査を前提に実送信せず、既存Cloud設定も変更しない。認証の回避や他connectorの資格情報流用は行わない。
+
+Cloud修正と既存の将来分監査を含む候補3ファイルを私用releaseフォルダへ版hash付きで準備済み・未配備。実配備のmetadataとversion指定source snapshotの取得が配備/復旧の前提。古いGit commitを実本番の旧版とは扱わず、実versionへ戻す際も新規監査/開始境界を保持し、旧データを再処理しない。[配備確認と復旧](CLOUD_DEPLOYMENT_GATE.md)、[自然実行と監査の証拠分担](CLOUD_AUDIT_NEXT.md)に記録。自然なChatGPT起動と結果作成の証拠経路も未取得で、手動や新しい別cronで代用しない。
+
+通常runtimeはretry_wait/hourly_gate/emptyもokと記録していたため、実際の待機・未送信・strictOK受理を区別する最小修正。新規3件で通信失敗→待機→同一body再試行と状態保全を検証。通常backoff/固定request/receiver重複排除は既存実装を再利用し、旧queueを再送して試験しない。日常用には停止済みprofileと配置版を検証してcollect-onlyのentry/plistを準備する補助を追加し、無効/協調停止/config変更は終了0、異常終了は非0となる生成entryを7件で検証。新規永続stdout/errファイルを作らず最新状態1件とOSログを使う。実launchd再起動・日常labelのroot登録/解除・送信常用serviceは未完了。ACK済み行/cacheは保全し、削除や保持期限を勝手に追加しない。長期容量・実通信断・絶対wall-clock停止上限は未検証。[運用記録](OPERATIONS_REVIEW.md)を参照。
+
+N1の期限を過ぎた実試験に備え、新規の架空文・due・専用base/label/run・現在のruntimeを含むキット・手順を1つの生成器へ統合。TEXT/LABELと期限検査以外は既存1件限定helperを再利用し、prepare/worker/HTTP子の開始とdispatch直前に期限を検査。4件で旧N1不変、変換後も新対象1件、旧/別トーク除外、期限後不送信、既存出力拒否を確認。未来期限の新候補一式を私用保存済み・未起動。試験時に期限が過ぎていればこの候補を手編集せず、再度新規生成する。[新試験手順](TRIAL_AFTER_N1.md)参照。
+
+LINE前景化は既存uiopenの一次ソースを確認し、対象OS/help契約を確認して固定bundleだけへ要求する`launch-line`を管理CLIへ追加。命令前後のJSTを私用記録し、戻り値0から実前景/ロック成功を推測しない。3件の合成検証済み・実機未検証。対象環境のロック実行手段は未特定で、未校正信号・未確認private ABI・respringを代用しない。[画面操作](UI_CONTROL_NEXT.md)参照。PC GUIには操作していない。
+
+変更直結試験は成功。必要なCIの最終結果は確定後に追記する。残りは、正規のGAS配備/設定アクセスと自然ChatGPT実行記録の取得、監査の実適用と新Cloud1件試験、本人の初回端末接続・認証後の新着ロック中配送照合、日常送信serviceと実長時間/復旧検証。CIや合成試験のみで完成としない。私用metadata/接続先/実ID/hash/ログは公開しない。PR未マージ。
+
+---
+
 # 初回接続の具体化と停止処理修正 — 2026-11-25
 
 最終保存のコード版24be738f565c54dd2dede6b710b514d38bb96303の[CI run 45564946582](https://github.com/Sat0T/line-auto-sync/actions/runs/45564946582)は全6ジョブ成功。Python179件をWindows/Linux・3.9/3.12で確認（WindowsはPOSIX専用8件skip、LinuxはWindows専用1件skip）、私用deb生成/展開、GAS合成12件と合成pipeline、公開履歴監査が成功。以後はこの結果の文書追記のみで、CIを再実行しない。新bootstrap・キット・私用転送manifestの一致と旧キットの保持も確認した。本人用NewTerm6コマンド集とWork用PC再開手順を私用保存済み。端末への到達・実接続・本番送信を成功扱いにはしない。

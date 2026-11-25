@@ -32,6 +32,32 @@ os.umask(0o077)
 def put_new(p,data):
     with p.open('xb') as f: f.write(data)
 def emit(x): print(json.dumps(x))
+
+def native_line_launch(os_version):
+    if os_version!='16.7.14':return {'supported':False,'reason':'native_os_not_reviewed','foreground_verified':False}
+    from datetime import datetime,timedelta,timezone
+    def now():return datetime.now(timezone(timedelta(hours=9))).isoformat(timespec='microseconds')
+    tool=shutil.which('uiopen')
+    if not tool:return {'supported':False,'reason':'existing_uiopen_missing','foreground_verified':False}
+    help_result=subprocess.run([tool,'--help'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=5)
+    if help_result.returncode or b'--bundleid' not in help_result.stdout:
+        return {'supported':False,'reason':'bundleid_contract_not_observed','foreground_verified':False}
+    record={'event':'line_launch_request','started_jst':now(),'bundle':'jp.naver.line',
+            'foreground_verified':False,'lock_state_verified':False}
+    # A durable request record precedes screen-changing input. No automatic retry.
+    path=base/'ui-actions.jsonl'
+    def write(value):
+        with os.fdopen(os.open(str(path),os.O_WRONLY|os.O_CREAT|os.O_APPEND|getattr(os,'O_NOFOLLOW',0),0o600),'a') as f:
+            f.write(json.dumps(value)+'\n');f.flush();os.fsync(f.fileno())
+    write(record)
+    try:
+        result=subprocess.run([tool,'--bundleid','jp.naver.line'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=10)
+        record.update(command_completed=result.returncode==0,returncode=result.returncode)
+    except (OSError,subprocess.TimeoutExpired):
+        record.update(command_completed=False,outcome='unknown_no_retry')
+    record.update(event='line_launch_command_finished',finished_jst=now())
+    write(record)
+    return dict(record,supported=True)
 def verify_stage():
     saved=json.loads((stage/'manifest.json').read_text())
     for name,digest in saved.items():
@@ -122,6 +148,11 @@ elif action=='prepare':
         raise RuntimeError('prepared_profile_not_disabled')
     result=privileged('install')
     emit({'prepared':True,'root_plist_verified':result['installed'],'started':False})
+elif action=='launch-line':
+    verify_stage()
+    if not base.is_dir():raise RuntimeError('prepare_profile_before_screen_action')
+    version=plistlib.loads(pathlib.Path('/System/Library/CoreServices/SystemVersion.plist').read_bytes()).get('ProductVersion')
+    emit(native_line_launch(version))
 elif action=='ui-status':
     verify_stage()
     from datetime import datetime,timedelta,timezone
@@ -132,7 +163,7 @@ elif action=='ui-status':
     finally: reader.close()
     emit({'device_jst':datetime.now(timezone(timedelta(hours=9))).isoformat(timespec='microseconds'),
           'lock_signal_observed':raw,'lock_state_verified':False,
-          'line_launch_automation':'unsupported_until_native_tool_verified',
+          'line_launch_automation':'launch-line_adapter_requires_existing_bundleid_tool',
           'lock_command_automation':'unsupported_until_native_tool_verified',
           'unlock_automation':'unsupported_no_passcode_storage'})
 elif action=='start':
@@ -696,7 +727,7 @@ def control(cfg, action, run, journal, base='/var/mobile/las-lock-n1', bundle=No
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=['package', 'generate-key', 'verify-local-key', 'protect-existing-key',
-                                         'export-root-setup', 'doctor', 'deploy', 'prepare', 'ui-status', 'start', 'status',
+                                         'export-root-setup', 'doctor', 'deploy', 'prepare', 'ui-status', 'launch-line', 'start', 'status',
                                          'post-unlock-once', 'fetch', 'stop'])
     parser.add_argument('--config', type=Path)
     parser.add_argument('--journal', type=Path)
