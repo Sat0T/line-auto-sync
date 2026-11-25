@@ -12,13 +12,13 @@ import urllib.request
 from delivery_state import DeliveryError, DeliveryState
 import legacy_names
 import normal_hold
-from runtime_paths import STATE_DIR, require_enabled
+from runtime_paths import STATE_DIR, allowed_chat_pks, require_enabled
 
 
 @contextmanager
-def sender_lock(directory):
+def sender_lock(directory, filename='normal-sender.lock'):
     """Independent process lock; never hold a SQLite write transaction over HTTP."""
-    path = Path(directory) / 'normal-sender.lock'
+    path = Path(directory) / filename
     if path.is_symlink():
         raise DeliveryError('unsafe_sender_lock')
     flags = os.O_RDWR | os.O_CREAT
@@ -84,12 +84,16 @@ class SafeRedirect(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def post_legacy(endpoint, token, body, maxid):
+def exchange_legacy(endpoint, token, body, maxid, redirect=None):
     data = json.dumps({'token': token, 'maxid': str(maxid), 'body': body}, ensure_ascii=False).encode()
     request = urllib.request.Request(endpoint, data, {'Content-Type': 'application/json'})
-    with urllib.request.build_opener(SafeRedirect()).open(request, timeout=30) as response:
-        answer = response.read(129)
-        return len(answer) <= 128 and answer.strip() == b'OK'
+    with urllib.request.build_opener(redirect or SafeRedirect()).open(request, timeout=30) as response:
+        return response.read(129)
+
+
+def post_legacy(endpoint, token, body, maxid):
+    answer = exchange_legacy(endpoint, token, body, maxid)
+    return len(answer) <= 128 and answer.strip() == b'OK'
 
 
 def send_once(post=None, now=None):
@@ -128,7 +132,7 @@ def send_once(post=None, now=None):
                 active = queue.db.execute('SELECT * FROM delivery').fetchone()
                 if active is None:
                     return dict(queue.status(), sent=False, reason='already_acknowledged')
-                ids = queue.verify_frozen(active, current_config['source_id'])
+                ids = queue.verify_frozen(active, current_config['source_id'], allowed_chat_pks(current_config))
                 if active['next_attempt'] > now:
                     return dict(queue.status(), sent=False, reason='retry_wait')
                 frozen = (active['batch_id'], active['body'], active['ids'],
@@ -153,7 +157,7 @@ def send_once(post=None, now=None):
                     latest['attempts'], latest['next_attempt']
                 ) != frozen:
                     raise DeliveryError('delivery_changed_during_http')
-                queue.verify_frozen(latest, latest_config['source_id'])
+                queue.verify_frozen(latest, latest_config['source_id'], allowed_chat_pks(latest_config))
                 if accepted:
                     queue.acknowledge(latest, now)
                 else:

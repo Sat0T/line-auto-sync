@@ -1,0 +1,301 @@
+'use strict';
+const {test} = require('node:test');
+const assert = require('node:assert/strict');
+const {createRuntime} = require('../tools/mvp_offline_runtime');
+const SOURCE = 'MVP_DEMO', TOKEN = 'SYNTHETIC_MVP_TOKEN_NOT_A_REAL_SECRET_ONLY';
+function fixture(compact = false, source = SOURCE) {
+  const runtime = createRuntime(); runtime.bootstrap(source, TOKEN);
+  // Ordinary fixtures model mail arriving after an already-adopted audit boundary.
+  runtime.state.properties.LAS_RESULT_AUDIT_SINCE_MS = '1';
+  const core = runtime.context.LasMvp, hash = runtime.context.lasHash_;
+  const r = {id: source + ':102', time: '2026-11-04T09:01:00+09:00', chat: 'Demo Group', sender: 'Demo User',
+    text: 'Synthetic form request', refs: {message_pk: '102', chat_pk: '2', sender_pk: '1'}};
+  const digest = hash(core.canonical(r) + '\n');
+  const manifest = {v: 2, kind: 'line_batch', source, part: 1, parts: 1, count: 1,
+    sha256: digest, batch_id: hash(source + '\n' + digest)};
+  const payload = compact ? core.canonical({format: 'C1', source, chats: [[r.chat, '2']], senders: [[r.sender, '1']]}) +
+    '\n' + core.canonical(['102', r.time, 0, 0, r.text]) + '\n' : core.canonical(r) + '\n';
+  const request = {token: TOKEN, maxid: '102', body: core.canonical(manifest) + '\n' + payload};
+  const result = {kind: 'line_task_result', status: 'extraction_complete', source,
+    processedMessageIDs: [r.id], items: [{item_id: r.id, kind: 'task', title: 'Submit synthetic form',
+      certainty: 'confirmed', applies_to_user: true, due: '2026-11-06T17:00:00+09:00', evidence_ids: [r.id]}]};
+  return {runtime, request, result, manifest};
+}
+
+test('real GAS entry points accept B/C1, authenticate, persist once and forward once', () => {
+  for (const compact of [false, true]) {
+    const {runtime, request} = fixture(compact);
+    assert.equal(runtime.receive({...request, token: 'WRONG'}), 'ERROR');
+    assert.equal(runtime.state.mails.length, 0);
+    assert.equal(runtime.receive(request), 'OK');
+    assert.equal(runtime.receive(request), 'OK');
+    assert.equal(runtime.state.mails.length, 1);
+    assert.equal(runtime.receive({...request, body: request.body.replace('Synthetic', 'Tampered')}), 'ERROR');
+    assert.equal(runtime.state.mails.length, 1);
+    assert.equal(runtime.context.doGet().includes(TOKEN), false);
+  }
+});
+
+test('a lost mail-send result reconciles Sent without a second send', () => {
+  const {runtime, request} = fixture(); runtime.loseSendResponse(true);
+  assert.equal(runtime.receive(request), 'OK');
+  assert.equal(runtime.state.mails.length, 1);
+  runtime.loseSendResponse(false);
+  runtime.maintenance(); runtime.maintenance();
+  assert.equal(runtime.state.mails.length, 1);
+});
+
+test('existing result schema creates visible tasks once and preserves owner completion', () => {
+  const {runtime, request, result} = fixture(); runtime.receive(request);
+  runtime.addResult(result); assert.equal(runtime.maintenance().results, 1);
+  assert.equal(runtime.tasks().length, 1);
+  runtime.setOwnerState(SOURCE + ':102', 'completed');
+  runtime.addResult(result); assert.equal(runtime.maintenance().results, 0);
+  assert.equal(runtime.tasks().length, 1);
+  assert.equal(runtime.context.lasStore_(runtime.context.lasConfig_()).get('tasks', SOURCE + ':102').owner_state, 'completed');
+  runtime.setOwnerState(SOURCE + ':102', 'cancelled');
+  assert.equal(runtime.maintenance().results, 0);
+  assert.equal(runtime.tasks().length, 1);
+  assert.equal(runtime.context.lasStore_(runtime.context.lasConfig_()).get('tasks', SOURCE + ':102').owner_state, 'cancelled');
+  const invalid = JSON.parse(JSON.stringify(result)); invalid.processedMessageIDs = [SOURCE + ':999'];
+  runtime.addResult(invalid); assert.equal(runtime.maintenance().invalid, 1);
+  assert.equal(runtime.tasks().length, 1);
+  const conflict = JSON.parse(JSON.stringify(result)); conflict.items[0].title = 'Different result for the same evidence';
+  runtime.addResult(conflict); assert.equal(runtime.maintenance().invalid, 2);
+  assert.equal(runtime.tasks()[0].title, result.items[0].title);
+});
+
+test('candidate stays pending, sender/chat come from evidence, sheet formulas are escaped', () => {
+  const {runtime, request, result} = fixture(); runtime.receive(request);
+  result.items[0].certainty = 'candidate'; result.items[0].title = '=IMPORTDATA("example.invalid")';
+  result.items[0].sender = 'fabricated by a result'; result.items[0].chat = 'fabricated';
+  runtime.addResult(result); assert.equal(runtime.maintenance().results, 1);
+  const task = runtime.tasks()[0];
+  assert.equal(task.state, 'needs_review'); assert.equal(task.sender, 'Demo User'); assert.equal(task.chat, 'Demo Group');
+  const row = runtime.state.books[runtime.state.properties.LAS_SHEET].sheets.tasks[1];
+  assert.equal(row[1].startsWith("'="), true);
+  runtime.context.enableMvpMaintenance(); runtime.context.enableMvpMaintenance();
+  assert.deepEqual(runtime.state.triggers, ['mvpMaintenance']);
+});
+
+test('Gmail byte-array and flowed result body is decoded for the configured source', () => {
+  const {runtime, request, result} = fixture(); runtime.receive(request);
+  runtime.addResult(result);
+  const part = runtime.state.mails.at(-1).payload;
+  const flowed = JSON.stringify(result).replace('Submit synthetic form', 'Submit syn \r\n thetic form');
+  part.headers.push({name: 'Content-Type', value: 'text/plain; format=flowed; delsp=yes'});
+  part.body.data = [...Buffer.from(flowed, 'utf8')];
+  runtime.addResult({...result, source: 'OTHER'});
+  runtime.state.mails.at(-1).payload.body.data = [123];
+  const report = runtime.maintenance();
+  assert.equal(report.results, 1);
+  assert.equal(report.invalid, 0);
+  assert.equal(runtime.tasks()[0].title, 'Submit synthetic form');
+});
+
+test('dedicated source saves one dated reply and retains the owner completion', () => {
+  const source = 'OFFLINE_PILOT';
+  const {runtime, request, result} = fixture(false, source);
+  assert.equal(runtime.receive(fixture().request), 'ERROR');
+  assert.equal(runtime.receive(request), 'OK');
+  assert.equal(runtime.receive(request), 'OK');
+  assert.equal(runtime.state.mails.length, 1);
+  const item = result.items[0];
+  item.kind = 'reply';
+  item.title = 'Reply to the synthetic request';
+  runtime.addResult(result);
+  assert.equal(runtime.maintenance().results, 1);
+  const task = runtime.tasks()[0];
+  assert.equal(task.kind, 'reply');
+  assert.equal(task.due, item.due);
+  runtime.setOwnerState(item.item_id, 'completed');
+  runtime.addResult(result);
+  assert.equal(runtime.maintenance().results, 0);
+  assert.equal(runtime.tasks().length, 1);
+  assert.equal(runtime.context.lasStore_(runtime.context.lasConfig_()).get('tasks', item.item_id).owner_state, 'completed');
+});
+
+function auditedFixture() {
+  const f = fixture(); f.runtime.receive(f.request); f.runtime.maintenance();
+  f.add = value => {
+    f.runtime.addResult(value);
+    const mail = f.runtime.state.mails.at(-1);
+    mail.internalDate = String(Number(f.runtime.state.properties.LAS_RESULT_AUDIT_SINCE_MS) + 1);
+    return mail;
+  };
+  return f;
+}
+
+test('prospective import links actual Gmail ID, digest, task IDs and observed GAS trigger separately', () => {
+  const {runtime, result, add} = auditedFixture(); const mail = add(result);
+  assert.equal(runtime.maintenance({triggerUid: '123456'}).results, 1);
+  const audit = runtime.audits(); assert.equal(audit.length, 2);
+  const done = audit[1], store = runtime.context.lasStore_(runtime.context.lasConfig_());
+  assert.equal(done.outcome, 'saved'); assert.equal(done.gmail_message_id, mail.id);
+  assert.equal(done.result_hash, store.get('messages', result.items[0].item_id).result_hash);
+  assert.deepEqual(done.task_ids, [result.items[0].item_id]);
+  assert.equal(done.trigger_uid_observed, '123456');
+  assert.equal(done.chatgpt_run_id, null); assert.equal(done.chatgpt_start_reason, null);
+  assert.equal(done.gas_native_execution_id, null);
+  assert.equal(audit[0].gas_import_attempt_id, done.gas_import_attempt_id);
+  const executionLog = runtime.state.logs.map(line => JSON.parse(line))
+    .find(row => row.gas_import_attempt_id === done.gas_import_attempt_id);
+  assert.equal(executionLog.event, 'result_import_run');
+  assert.equal(executionLog.trigger_uid_observed, '123456');
+  assert.equal('gmail_message_id' in executionLog, false);
+  assert.equal('result_hash' in executionLog, false);
+  assert.ok(Date.parse(done.recorded_at) >= Date.parse(done.import_started_at));
+  assert.equal(JSON.stringify(audit).includes('Submit synthetic form'), false);
+  runtime.maintenance(); assert.equal(runtime.audits().length, 2); // No polling-log growth.
+  add(result); runtime.maintenance();
+  assert.equal(runtime.audits().at(-1).outcome, 'duplicate');
+  assert.equal(runtime.audits().at(-1).saved, 0); assert.equal(runtime.tasks().length, 1);
+});
+
+test('legacy completed results receive no retrospective audit or task rewrite', () => {
+  const {runtime, result, add} = auditedFixture(); const mail = add(result); runtime.maintenance();
+  runtime.setOwnerState(result.items[0].item_id, 'completed');
+  const book = runtime.state.books[runtime.state.properties.LAS_SHEET];
+  const before = JSON.stringify(book.sheets.tasks);
+  delete book.sheets.result_import_audit; delete runtime.state.properties.LAS_RESULT_AUDIT_SINCE_MS;
+  let calls = 0; const original = runtime.context.LasMvp.result;
+  runtime.context.LasMvp.result = (...args) => { calls++; return original(...args); };
+  runtime.context.lasPlain_ = () => { throw Error('legacy_body_must_not_be_decoded'); };
+  mail.internalDate = '1'; const report = runtime.maintenance();
+  assert.equal(calls, 0); assert.equal(report.invalid, 0);
+  assert.equal(runtime.audits().length, 0); assert.equal(JSON.stringify(book.sheets.tasks), before);
+});
+
+test('pre-boundary unprocessed mail and invalid timestamps never enter result processing', () => {
+  for (const date of ['1', undefined, '', '0', 'NaN', '-1', '1.5', ' 100', '9007199254740992']) {
+    const {runtime, result, add} = auditedFixture(); const mail = add(result);
+    runtime.state.properties.LAS_RESULT_AUDIT_SINCE_MS = '100'; mail.internalDate = date;
+    let calls = 0; runtime.context.LasMvp.result = () => { calls++; throw Error('must_not_process'); };
+    runtime.context.lasPlain_ = () => { throw Error('must_not_decode'); };
+    const report = runtime.maintenance();
+    assert.equal(calls, 0); assert.equal(runtime.tasks().length, 0);
+    assert.equal(runtime.audits().length, 0);
+    assert.equal(report.invalid, date === '1' ? 0 : 1);
+  }
+});
+
+test('mail exactly at adoption boundary is eligible and completed audit bypasses processing', () => {
+  const {runtime, result, add} = auditedFixture(); const mail = add(result);
+  mail.internalDate = runtime.state.properties.LAS_RESULT_AUDIT_SINCE_MS;
+  assert.equal(runtime.maintenance().results, 1);
+  runtime.context.lasPlain_ = () => { throw Error('completed_mail_must_not_be_decoded'); };
+  runtime.context.LasMvp.result = () => { throw Error('completed_mail_must_not_be_reprocessed'); };
+  assert.equal(runtime.maintenance().invalid, 0);
+  assert.equal(runtime.tasks().length, 1); assert.equal(runtime.audits().length, 2);
+});
+
+test('malformed mail and conflicting results are recorded as failures without raw contents', () => {
+  const {runtime, result, add} = auditedFixture(); const bad = add(result);
+  bad.payload.body.data = Buffer.from('PRIVATE_SYNTHETIC_MALFORMED').toString('base64url');
+  assert.equal(runtime.maintenance().invalid, 1);
+  assert.equal(runtime.audits().at(-1).outcome, 'failed');
+  assert.equal(runtime.audits().at(-1).result_hash, null);
+  assert.equal(runtime.tasks().length, 0);
+  add(result); runtime.maintenance();
+  const conflict = structuredClone(result); conflict.items[0].title = 'conflict'; add(conflict);
+  assert.ok(runtime.maintenance().invalid >= 1);
+  assert.equal(runtime.audits().at(-1).outcome, 'failed');
+  assert.equal(runtime.tasks().length, 1); assert.equal(runtime.tasks()[0].title, result.items[0].title);
+  assert.equal(JSON.stringify(runtime.audits()).includes('PRIVATE_SYNTHETIC_MALFORMED'), false);
+});
+
+test('partial save remains failed and retries idempotently while preserving owner state', () => {
+  const {runtime, result, add} = auditedFixture(); add(result);
+  runtime.failWrites((name, values) => name === 'messages' && JSON.parse(values[0][1]).result_hash);
+  assert.equal(runtime.maintenance().invalid, 1);
+  assert.equal(runtime.audits().at(-1).outcome, 'failed');
+  assert.equal(runtime.audits().at(-1).storage_state, 'partial_or_unknown');
+  assert.equal(runtime.tasks().length, 1);
+  runtime.setOwnerState(result.items[0].item_id, 'completed'); runtime.failWrites(null);
+  assert.equal(runtime.maintenance().results, 1);
+  assert.equal(runtime.audits().at(-1).outcome, 'saved'); assert.equal(runtime.tasks().length, 1);
+  assert.equal(runtime.tasks()[0].owner_state, 'completed');
+});
+
+test('audit-start failure blocks writes; completion-log failure never returns success', () => {
+  const {runtime, result, add} = auditedFixture(); add(result);
+  runtime.failWrites(name => name === 'result_import_audit');
+  assert.throws(() => runtime.maintenance(), /audit_write_failed/); assert.equal(runtime.tasks().length, 0);
+  runtime.failWrites((name, row) => name === 'result_import_audit' && JSON.parse(row[1]).outcome === 'saved');
+  assert.throws(() => runtime.maintenance(), /audit_write_failed/);
+  assert.equal(runtime.tasks().length, 1); assert.equal(runtime.audits().at(-1).outcome, 'started');
+  runtime.failWrites(null); assert.equal(runtime.maintenance().results, 0);
+  assert.equal(runtime.audits().at(-1).outcome, 'duplicate'); assert.equal(runtime.tasks().length, 1);
+});
+
+test('receiver OK and accepted ledger do not imply successful Gmail forwarding', () => {
+  const {runtime, request, manifest} = fixture();
+  runtime.context.MailApp.sendEmail = () => { throw Error('synthetic failure before mail exists'); };
+  assert.equal(runtime.receive(request), 'OK');
+  const store = runtime.context.lasStore_(runtime.context.lasConfig_());
+  const batch = store.get('batches', manifest.batch_id);
+  assert.equal(batch.state, 'accepted');
+  assert.equal(batch.mail_state, 'sending');
+  assert.equal(runtime.state.mails.length, 0);
+  assert.equal(runtime.maintenance().held, 1);
+  assert.equal(runtime.state.mails.length, 0);
+});
+
+test('ambiguous mail reconciliation requires the stored body, not just the same subject', () => {
+  const {runtime, request, manifest} = fixture(); runtime.loseSendResponse(true);
+  assert.equal(runtime.receive(request), 'OK');
+  const correct = structuredClone(runtime.state.mails[0]); correct.id = 'synthetic-correct-mail';
+  runtime.state.mails[0].payload.body.data = Buffer.from('different synthetic body').toString('base64url');
+  runtime.loseSendResponse(false);
+  const store = runtime.context.lasStore_(runtime.context.lasConfig_());
+  assert.equal(runtime.maintenance().held, 1);
+  assert.equal(store.get('batches', manifest.batch_id).mail_state, 'sending');
+  assert.equal(runtime.state.mails.length, 1);
+  runtime.state.mails.push(correct);
+  assert.equal(runtime.maintenance().held, 0);
+  assert.equal(store.get('batches', manifest.batch_id).mail_id, correct.id);
+  assert.equal(runtime.state.mails.length, 2);
+});
+
+test('multiple exact Sent matches retain ambiguity and never cause another send', () => {
+  const {runtime, request, manifest} = fixture(); runtime.loseSendResponse(true); runtime.receive(request);
+  const duplicate = structuredClone(runtime.state.mails[0]); duplicate.id = 'synthetic-second-exact-mail';
+  runtime.state.mails.push(duplicate); runtime.loseSendResponse(false);
+  assert.equal(runtime.maintenance().held, 1);
+  const store = runtime.context.lasStore_(runtime.context.lasConfig_());
+  assert.equal(store.get('batches', manifest.batch_id).mail_state, 'sending');
+  assert.equal(runtime.state.mails.length, 2);
+});
+
+test('incomplete Sent search and corrupt stored payload cannot become recovered success', () => {
+  const {runtime, request, manifest} = fixture(); runtime.loseSendResponse(true); runtime.receive(request);
+  runtime.loseSendResponse(false);
+  const list = runtime.context.Gmail.Users.Messages.list;
+  runtime.context.Gmail.Users.Messages.list = (owner, options) => {
+    const page = list(owner, options);
+    if (options.q.includes('[LINE-TASK-BATCH]')) page.nextPageToken = 'synthetic-more-candidates';
+    return page;
+  };
+  const store = runtime.context.lasStore_(runtime.context.lasConfig_());
+  assert.equal(runtime.maintenance().held, 1);
+  assert.equal(store.get('batches', manifest.batch_id).mail_state, 'sending');
+  runtime.context.Gmail.Users.Messages.list = list;
+  const batch = store.get('batches', manifest.batch_id);
+  runtime.state.files[batch.file_id].body = 'synthetic corrupted stored body';
+  assert.equal(runtime.maintenance().held, 1);
+  assert.equal(store.get('batches', manifest.batch_id).mail_state, 'sending');
+  assert.equal(runtime.state.mails.length, 1);
+});
+
+test('exact Sent receipt can be reconciled after MIME flowed wrapping without an extra EOF line', () => {
+  const {runtime, request, manifest} = fixture(); runtime.loseSendResponse(true); runtime.receive(request);
+  runtime.loseSendResponse(false);
+  const mail = runtime.state.mails[0], part = mail.payload;
+  const body = Buffer.from(part.body.data, 'base64url').toString('utf8');
+  part.headers.push({name: 'Content-Type', value: 'text/plain; format=flowed; delsp=yes'});
+  part.body.data = Buffer.from(body.replace('Synthetic form request', 'Synthetic form re \r\n quest')).toString('base64url');
+  assert.equal(runtime.maintenance().held, 0);
+  const store = runtime.context.lasStore_(runtime.context.lasConfig_());
+  assert.equal(store.get('batches', manifest.batch_id).mail_id, mail.id);
+  assert.equal(runtime.state.mails.length, 1);
+});
