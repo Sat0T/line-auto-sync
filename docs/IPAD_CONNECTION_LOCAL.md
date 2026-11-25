@@ -1,5 +1,7 @@
 # iPad管理CLIと初回接続の再開条件
 
+11/25更新：最新の具体的な転送・公開鍵登録・ホスト鍵照合・初回sudo手順は [IPAD_FIRST_CONNECTION.md](IPAD_FIRST_CONNECTION.md)。修正版の新キットは作成済みなので、以下のpackageを同じ保存先で再実行しない。旧キットと元の専用鍵・登録セットは保持。stop/statusは両ドメインを独立に処理し、問い合わせ失敗はunknown、両方が明示的に未登録の場合だけ解除完了とする。root側stopの時間予算40秒、status10秒。生成bootstrapもこの修正版と照合して使う。
+
 実装は `tools/manage_ipad.py`。既存のSSH鍵認証と信頼済みホスト鍵だけを使い、接続先・秘密鍵・パスワードを推測しない。実機の変更、ジョブ起動、LINE送信はこの接続調査では行っていない。
 
 ## 今回確認できた範囲
@@ -57,9 +59,9 @@ WindowsのOpenSSH生成ファイルと同様に、所有者Read＋System/Admin�
 CLIは次の順に使用する。`RUN_ID` はこの試験用の英小文字・数字・ハイフンの新しい名称。同じjournal/run/baseを維持する。本人が接続を確認するまでは、package・generate-key・export-root-setup以外を実行しない。
 
 ```sh
-py tools/manage_ipad.py package --repository . --output .las-private/n1-kit-final
-py tools/manage_ipad.py doctor --config .las-private/ipad-connection.json --journal .las-private/n1-journal.json --run RUN_ID
-py tools/manage_ipad.py deploy --config .las-private/ipad-connection.json --journal .las-private/n1-journal.json --run RUN_ID --bundle .las-private/n1-kit-final
+py tools/manage_ipad.py package --repository . --output .las-private/n1-kit-20261125-stopfix
+py tools/manage_ipad.py doctor --config .las-private/ipad-connection-20261125/connection.json --journal .las-private/n1-journal.json --run RUN_ID
+py tools/manage_ipad.py deploy --config .las-private/ipad-connection-20261125/connection.json --journal .las-private/n1-journal.json --run RUN_ID --bundle .las-private/n1-kit-20261125-stopfix
 ```
 
 doctorで `root_bridge_setup_required:true` の場合、deployしたキットの固定root setupを本人がNewTermで一度だけ実行する。以下のRUN_IDは上と同じものに置き換える。sudoのパスワードは端末で入力し、保存しない。
@@ -75,13 +77,13 @@ setupは埋め込みbridgeのコードSHAを照合し、root所有600のbridge�
 setup後、doctorで `noninteractive_root_available:true` を確認してからprepare以降へ進む。
 
 ```sh
-py tools/manage_ipad.py doctor --config .las-private/ipad-connection.json --journal .las-private/n1-journal.json --run RUN_ID
-py tools/manage_ipad.py prepare --config .las-private/ipad-connection.json --journal .las-private/n1-journal.json --run RUN_ID
-py tools/manage_ipad.py ui-status --config .las-private/ipad-connection.json --journal .las-private/n1-journal.json --run RUN_ID
-py tools/manage_ipad.py start --config .las-private/ipad-connection.json --journal .las-private/n1-journal.json --run RUN_ID
-py tools/manage_ipad.py status --config .las-private/ipad-connection.json --journal .las-private/n1-journal.json --run RUN_ID
-py tools/manage_ipad.py fetch --config .las-private/ipad-connection.json --journal .las-private/n1-journal.json --run RUN_ID --output .las-private/n1-logs
-py tools/manage_ipad.py stop --config .las-private/ipad-connection.json --journal .las-private/n1-journal.json --run RUN_ID
+py tools/manage_ipad.py doctor --config .las-private/ipad-connection-20261125/connection.json --journal .las-private/n1-journal.json --run RUN_ID
+py tools/manage_ipad.py prepare --config .las-private/ipad-connection-20261125/connection.json --journal .las-private/n1-journal.json --run RUN_ID
+py tools/manage_ipad.py ui-status --config .las-private/ipad-connection-20261125/connection.json --journal .las-private/n1-journal.json --run RUN_ID
+py tools/manage_ipad.py start --config .las-private/ipad-connection-20261125/connection.json --journal .las-private/n1-journal.json --run RUN_ID
+py tools/manage_ipad.py status --config .las-private/ipad-connection-20261125/connection.json --journal .las-private/n1-journal.json --run RUN_ID
+py tools/manage_ipad.py fetch --config .las-private/ipad-connection-20261125/connection.json --journal .las-private/n1-journal.json --run RUN_ID --output .las-private/n1-logs
+py tools/manage_ipad.py stop --config .las-private/ipad-connection-20261125/connection.json --journal .las-private/n1-journal.json --run RUN_ID
 ```
 
 - packageは確認したhelper・既存観測2ファイルとruntimeのPythonソース、本人の一度の認証で使うroot_bootstrap.pyを、新しい私用キットへまとめる。ジョブを起動しない。
@@ -102,4 +104,4 @@ ui-statusは端末自身のJST時刻と、既存のDarwin信号の生値を取�
 
 ## 検証の範囲
 
-関連テスト26件で、信頼済みホスト必須、非対話認証、切断時の開始記録、二重起動拒否、journalの対象固定、配備版変更の拒否、ログのハッシュ照合・上書き防止、全ての_private出力の私用journal限定保持、未校正信号を証明にしないこと、固定root command限定、bridgeのroot所有・600・非symlink/hardlink検査、visudo不在時の保留、鍵生成前後のACL失敗の区別、既存鍵候補の読取り照合・保全、ACL書換前のhardlink拒否、未解決leafのnative検査引渡しを検証。Windowsの所有者限定ACLとOpenSSH類似ACLの修復は、鍵を使わない合成ファイルでネイティブ確認した。SSH・sudoers導入・launchd・iPad native APIでの実動作は未確認。CI成功を実機成功に数えない。
+関連テスト32件で、信頼済みホスト必須、非対話認証、切断時の開始記録、二重起動拒否、journalの対象固定、配備版変更の拒否、ログのハッシュ照合・上書き防止、全ての_private出力の私用journal限定保持、未校正信号を証明にしないこと、固定root command限定、bridgeのroot所有・600・非symlink/hardlink検査、visudo不在時の保留、鍵生成前後のACL失敗の区別、既存鍵候補の読取り照合・保全、ACL書換前のhardlink拒否、未解決leafのnative検査引渡しを検証。Windowsの所有者限定ACLとOpenSSH類似ACLの修復は、鍵を使わない合成ファイルでネイティブ確認した。SSH・sudoers導入・launchd・iPad native APIでの実動作は未確認。CI成功を実機成功に数えない。

@@ -421,6 +421,121 @@ Set-Acl -LiteralPath $env:LAS_PRIVATE_KEY_ITEM -AclObject $acl
             manager.windows_acl(leaf, True, manager.WINDOWS_VERIFY_ACL)
         self.assertEqual(calls, [str(self.root / 'unresolved-leaf')])
 
+    def root_job_control(self, run, clock):
+        tree = ast.parse(manager.ROOT_ACTION)
+        functions = [node for node in tree.body if isinstance(node, ast.FunctionDef)
+                     and node.name in ('registered', 'stop_or_status')]
+        namespace = {'subprocess': SimpleNamespace(run=run, PIPE=subprocess.PIPE,
+                         DEVNULL=subprocess.DEVNULL, TimeoutExpired=subprocess.TimeoutExpired),
+                     'time': SimpleNamespace(monotonic=lambda: clock[0]),
+                     'domains': ('system', 'user/foreground'),
+                     'label': 'com.sat0t.line-auto-sync.lock-n1'}
+        exec(compile(ast.Module(body=functions, type_ignores=[]), '<bounded-root-job-control>', 'exec'), namespace)
+        return namespace['stop_or_status']
+
+    def test_stop_continues_other_bootout_and_both_queries_after_first_timeout(self):
+        clock = [0.0]; calls = []
+        def run(argv, **kwargs):
+            calls.append((argv[1], argv[2].split('/com.')[0]))
+            if argv[1] == 'bootout' and argv[2].startswith('system/'):
+                clock[0] += kwargs['timeout']
+                raise subprocess.TimeoutExpired(argv, kwargs['timeout'])
+            if argv[1] == 'bootout':
+                return subprocess.CompletedProcess(argv, 0)
+            return subprocess.CompletedProcess(argv, 1, b'', b'Could not find service')
+        result = self.root_job_control(run, clock)('stop')
+        self.assertEqual(calls, [('bootout', 'system'), ('bootout', 'user/foreground'),
+                                 ('print', 'system'), ('print', 'user/foreground')])
+        self.assertEqual(result['bootout']['system']['outcome'], 'timeout')
+        self.assertEqual(result['bootout']['user/foreground']['outcome'], 'completed')
+        self.assertEqual(result['registered'], {'system': False, 'user/foreground': False})
+        self.assertTrue(result['unregistered_in_checked_domains'])
+
+    def test_query_failure_is_unknown_and_does_not_skip_other_domain(self):
+        for failure in ('timeout', 'os_error', 'inconclusive'):
+            with self.subTest(failure=failure):
+                clock = [0.0]; calls = []
+                def run(argv, **kwargs):
+                    calls.append((argv[1], argv[2].split('/com.')[0]))
+                    if argv[1] == 'bootout':
+                        return subprocess.CompletedProcess(argv, 0)
+                    if argv[2].startswith('system/'):
+                        if failure == 'timeout':
+                            clock[0] += kwargs['timeout']
+                            raise subprocess.TimeoutExpired(argv, kwargs['timeout'])
+                        if failure == 'os_error':
+                            raise OSError('synthetic query failed')
+                        return subprocess.CompletedProcess(argv, 1, b'', b'synthetic permission failure')
+                    return subprocess.CompletedProcess(argv, 1, b'', b'Could not find service')
+                result = self.root_job_control(run, clock)('stop')
+                self.assertIsNone(result['registered']['system'])
+                self.assertIs(result['registered']['user/foreground'], False)
+                self.assertIn(('print', 'user/foreground'), calls)
+                self.assertFalse(result['unregistered_in_checked_domains'])
+
+    def test_bootout_error_and_remaining_registration_cannot_complete_stop(self):
+        calls = []
+        def run(argv, **kwargs):
+            calls.append(argv[1])
+            if argv[1] == 'bootout':
+                raise OSError('synthetic launchctl failure')
+            if argv[2].startswith('system/'):
+                return subprocess.CompletedProcess(argv, 0, b'synthetic running job', b'')
+            return subprocess.CompletedProcess(argv, 1, b'', b'Could not find service')
+        result = self.root_job_control(run, [0.0])('stop')
+        self.assertEqual(calls, ['bootout', 'bootout', 'print', 'print'])
+        self.assertTrue(result['registered']['system'])
+        self.assertFalse(result['unregistered_in_checked_domains'])
+        self.assertTrue(all(item['outcome'] == 'failed' for item in result['bootout'].values()))
+
+    def test_stop_timeout_budget_preserves_existing_privileged_and_ssh_envelopes(self):
+        clock = [0.0]; timeouts = []
+        def run(argv, **kwargs):
+            timeouts.append(kwargs['timeout'])
+            clock[0] += kwargs['timeout']
+            raise subprocess.TimeoutExpired(argv, kwargs['timeout'])
+        result = self.root_job_control(run, clock)('stop')
+        self.assertEqual(timeouts, [15, 15, 5, 5])
+        self.assertEqual(clock[0], 40)
+        self.assertEqual(result['registered'], {'system': None, 'user/foreground': None})
+        self.assertFalse(result['unregistered_in_checked_domains'])
+        remote_ast = ast.parse(manager.REMOTE)
+        privileged = next(n for n in remote_ast.body if isinstance(n, ast.FunctionDef) and n.name == 'privileged')
+        limits = [kw.value.value for n in ast.walk(privileged) if isinstance(n, ast.Call)
+                  for kw in n.keywords if kw.arg == 'timeout' and isinstance(kw.value, ast.Constant)]
+        self.assertEqual(limits, [45])
+        captured = []
+        def ssh(argv, **kwargs):
+            captured.append(kwargs['timeout'])
+            return subprocess.CompletedProcess(argv, 0, b'{}', b'')
+        manager.remote(self.cfg, {'action': 'status'}, execute=ssh)
+        self.assertEqual(captured, [95])
+
+    def test_exhausted_stop_budget_preserves_unknown_without_new_commands(self):
+        clock = [0.0]; calls = []
+        def run(argv, **kwargs):
+            calls.append(argv[1])
+            clock[0] += 40  # Simulate exhausted elapsed budget after first failure.
+            raise subprocess.TimeoutExpired(argv, kwargs['timeout'])
+        result = self.root_job_control(run, clock)('stop')
+        self.assertEqual(calls, ['bootout'])
+        self.assertEqual(result['bootout']['user/foreground']['outcome'], 'budget_exhausted')
+        self.assertEqual(result['query_errors'], {'system': 'budget_exhausted', 'user/foreground': 'budget_exhausted'})
+        self.assertFalse(result['unregistered_in_checked_domains'])
+
+    def test_status_query_failure_does_not_imply_absence_or_skip_second_domain(self):
+        calls = []
+        def run(argv, **kwargs):
+            calls.append(argv[2].split('/com.')[0])
+            if argv[2].startswith('system/'):
+                raise subprocess.TimeoutExpired(argv, kwargs['timeout'])
+            return subprocess.CompletedProcess(argv, 1, b'', b'Could not find service')
+        result = self.root_job_control(run, [0.0])('status')
+        self.assertEqual(calls, ['system', 'user/foreground'])
+        self.assertEqual(result['registered'], {'system': None, 'user/foreground': False})
+        self.assertFalse(result['unregistered_in_checked_domains'])
+        self.assertEqual(result['bootout'], {})
+
 
 if __name__ == '__main__':
     unittest.main()

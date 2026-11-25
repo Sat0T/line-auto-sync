@@ -1,5 +1,7 @@
 # N1：新しい固定文1件のロック中配送試験
 
+11/25更新：停止処理を修正した新キットを使う。初回接続は [IPAD_FIRST_CONNECTION.md](IPAD_FIRST_CONNECTION.md) を参照。現在は本人が端末を接続できず、実配備GASとのbindingも未確認なので未起動・未送信。固定文・既定base・ラベルはそのまま。日付だけを手で変更しない。
+
 本人の継続開発承認に含まれる試験。再承認待ちではないが、現在は対象iPadへの信頼・鍵認証済み接続が未確立のため**未実行**。初回接続・本人認証と撮影の準備後、以下を実施する。旧未配送文や既送文は使わず、今回の新規状態だけを操作する。
 
 ## 実行前に記録する固定条件
@@ -23,14 +25,14 @@ LAS-LOCK-20261120-N1 2026年11月25日18時までに配送試験の結果を確�
 
 [初回接続・認証と管理CLI](IPAD_CONNECTION_LOCAL.md)を先に実施する。接続先・鍵・ホスト鍵・journal・kitは私用ディレクトリに置く。現時点ではネイティブSSH/launchd/root bridgeの実機検証は未了。初回認証を自動承認しない。
 
-PC側の私用キット `.las-private/n1-kit-final` は今回作成済み（未配備・未起動）。同じ出力先でpackageを再実行せず、この作業環境ではdoctorから再開する。別の未準備環境でのみpackage→doctor→deploy→prepare→ui-statusの順に進む。新規run名は`n1-20261120`、baseは`/var/mobile/las-lock-n1`を一貫して使う。prepareは、既存baselineの停止・対象不在を確認し、新規キューを初期位置で作る。worker開始時にも対象不在を確認し、存在していたら送らず停止する。
+PC側の私用キット `.las-private/n1-kit-20261125-stopfix` は今回作成済み（未配備・未起動）。同じ出力先でpackageを再実行せず、この作業環境ではdoctorから再開する。別の未準備環境でのみpackage→doctor→deploy→prepare→ui-statusの順に進む。新規run名は`n1-20261120`、baseは`/var/mobile/las-lock-n1`を一貫して使う。prepareは、既存baselineの停止・対象不在を確認し、新規キューを初期位置で作る。worker開始時にも対象不在を確認し、存在していたら送らず停止する。
 
 ```sh
-py tools/manage_ipad.py package --repository . --output .las-private/n1-kit-final
-py tools/manage_ipad.py doctor --config .las-private/ipad-connection.json --journal .las-private/n1-journal.json --run n1-20261120
-py tools/manage_ipad.py deploy --config .las-private/ipad-connection.json --journal .las-private/n1-journal.json --run n1-20261120 --bundle .las-private/n1-kit-final
-py tools/manage_ipad.py prepare --config .las-private/ipad-connection.json --journal .las-private/n1-journal.json --run n1-20261120
-py tools/manage_ipad.py ui-status --config .las-private/ipad-connection.json --journal .las-private/n1-journal.json --run n1-20261120
+py tools/manage_ipad.py package --repository . --output .las-private/n1-kit-20261125-stopfix
+py tools/manage_ipad.py doctor --config .las-private/ipad-connection-20261125/connection.json --journal .las-private/n1-journal.json --run n1-20261120
+py tools/manage_ipad.py deploy --config .las-private/ipad-connection-20261125/connection.json --journal .las-private/n1-journal.json --run n1-20261120 --bundle .las-private/n1-kit-20261125-stopfix
+py tools/manage_ipad.py prepare --config .las-private/ipad-connection-20261125/connection.json --journal .las-private/n1-journal.json --run n1-20261120
+py tools/manage_ipad.py ui-status --config .las-private/ipad-connection-20261125/connection.json --journal .las-private/n1-journal.json --run n1-20261120
 ```
 
 doctorやprepareが失敗したらstatusと原因確認へ移り、startしない。既存runがある場合も新しいrunへ逃げて再送せず、その状態を照合する。stage版と端末側ファイルのhash検査が合格しても、配送の合格とは数えない。既存GASの配備/strict OK応答契約は別途実際に確認し、公開ソースだけで確認済みにしない。計画の初期値は未確認。実際の配備先との一致・応答契約・本人宛転送先を読み取りで確認できるまでは、startと試験文入力へ進まない。既存batches/messages台帳とGmail fullを回収できる経路も先に確保し、証拠取得を未配備の監査機能で代用しない。
@@ -44,7 +46,7 @@ doctorやprepareが失敗したらstatusと原因確認へ移り、startしな�
 3. 管理PCで次を1回だけ実行。命令成功はロック・配送成功の証拠ではない。PC時計は基準にせず、端末ログとiPad自身の時刻を使う。
 
 ```sh
-py tools/manage_ipad.py start --config .las-private/ipad-connection.json --journal .las-private/n1-journal.json --run n1-20261120
+py tools/manage_ipad.py start --config .las-private/ipad-connection-20261125/connection.json --journal .las-private/n1-journal.json --run n1-20261120
 ```
 
 4. iPadで`date '+START %Y-%m-%d %H:%M:%S %Z %z'`を動画に残し、20秒以内を目安に物理ロック。ボタン操作と画面状態が分かるよう撮影し、ロック操作から5分タイマーを開始する。iPadを操作し続けて開始が遅れた場合も、計測を動画冒頭へ戻さない。
@@ -55,9 +57,9 @@ py tools/manage_ipad.py start --config .las-private/ipad-connection.json --journ
 ## 確認・停止・未検出時の解除後読取り
 
 ```sh
-py tools/manage_ipad.py status --config .las-private/ipad-connection.json --journal .las-private/n1-journal.json --run n1-20261120
-py tools/manage_ipad.py fetch --config .las-private/ipad-connection.json --journal .las-private/n1-journal.json --run n1-20261120 --output .las-private/n1-logs
-py tools/manage_ipad.py stop --config .las-private/ipad-connection.json --journal .las-private/n1-journal.json --run n1-20261120
+py tools/manage_ipad.py status --config .las-private/ipad-connection-20261125/connection.json --journal .las-private/n1-journal.json --run n1-20261120
+py tools/manage_ipad.py fetch --config .las-private/ipad-connection-20261125/connection.json --journal .las-private/n1-journal.json --run n1-20261120 --output .las-private/n1-logs
+py tools/manage_ipad.py stop --config .las-private/ipad-connection-20261125/connection.json --journal .las-private/n1-journal.json --run n1-20261120
 ```
 
 stopは専用ジョブだけを停止・登録解除し、両ドメインを問い合わせる。問い合わせ失敗を登録なしと見なさない。finished記録・worker終了理由・config disabledも私用journal/ログで確認する。途中で異常があれば同じstopを使い、再送しない。取得結果は上書きせず、新しく回収する場合は別の私用保存先へ置く。解除後の1回読取りを実施した場合は、その後のevents等も別の私用保存先へfetchし、元の回収結果と両方を保持する。
@@ -65,7 +67,7 @@ stopは専用ジョブだけを停止・登録解除し、両ドメインを問�
 ロック中に対象を検出しなかった場合だけ、停止・登録解除確認後に解除し、解除操作・前景アプリ・時刻を記録してから次を1回実行する。取得後に対象が現れていても送信処理を再起動しない。
 
 ```sh
-py tools/manage_ipad.py post-unlock-once --config .las-private/ipad-connection.json --journal .las-private/n1-journal.json --run n1-20261120
+py tools/manage_ipad.py post-unlock-once --config .las-private/ipad-connection-20261125/connection.json --journal .las-private/n1-journal.json --run n1-20261120
 ```
 
 読取りはPCとiPad側の両方で1回を予約する。接続失敗を理由に再読取りしない。結果は「解除後の1回の読取りで存在/非存在」であり、解除操作が同期を起こした、あるいはその秒にDBへ挿入されたとは断定しない。

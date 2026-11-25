@@ -173,7 +173,7 @@ else: raise RuntimeError('unsupported_action')
 '''
 
 ROOT_ACTION = r'''
-import hashlib,json,os,pathlib,plistlib,re,stat,subprocess,sys
+import hashlib,json,os,pathlib,plistlib,re,stat,subprocess,sys,time
 def secure_root_file(path,mode):
     if path.is_symlink(): raise RuntimeError('root_bridge_symlink_refused')
     info=path.stat()
@@ -204,13 +204,45 @@ base=source.parent
 if spec.get('ProgramArguments')!=['/var/jb/usr/bin/python3',str(base/'tools/keep_lock_delivery.py'),'supervise','--base',str(base)]:
     raise RuntimeError('unexpected_job_program')
 target=pathlib.Path('/var/root')/(label+'.plist')
-def registered(domain):
-    r=subprocess.run(['/var/jb/bin/launchctl','print',domain+'/'+label],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=5)
+def registered(domain,timeout=5):
+    r=subprocess.run(['/var/jb/bin/launchctl','print',domain+'/'+label],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout)
     if r.returncode==0:return True
     message=(r.stdout+r.stderr).lower()
     if b'could not find service' in message or b'could not find specified service' in message or b'no such process' in message:return False
     raise RuntimeError('job_query_inconclusive')
 domains=('system','user/foreground')
+def stop_or_status(action):
+    # Keep the original envelope: two 15s bootouts and two 5s queries at most.
+    # A failure in one domain must not prevent the remaining cleanup/queries.
+    deadline=time.monotonic()+(40 if action=='stop' else 10)
+    bootout={}
+    if action=='stop':
+        for domain in domains:
+            timeout=min(15,max(0,deadline-time.monotonic()))
+            if timeout<=0:
+                bootout[domain]={'outcome':'budget_exhausted'}
+                continue
+            try:
+                r=subprocess.run(['/var/jb/bin/launchctl','bootout',domain+'/'+label],
+                                 stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=timeout)
+                bootout[domain]={'outcome':'completed','returncode':r.returncode}
+            except subprocess.TimeoutExpired:
+                bootout[domain]={'outcome':'timeout'}
+            except OSError:
+                bootout[domain]={'outcome':'failed'}
+    state={}; errors={}
+    for domain in domains:
+        timeout=min(5,max(0,deadline-time.monotonic()))
+        if timeout<=0:
+            state[domain]=None;errors[domain]='budget_exhausted'
+            continue
+        try:state[domain]=registered(domain,timeout)
+        except subprocess.TimeoutExpired:
+            state[domain]=None;errors[domain]='timeout'
+        except (OSError,RuntimeError):
+            state[domain]=None;errors[domain]='query_failed'
+    return {'registered':state,'query_errors':errors,'bootout':bootout,
+            'unregistered_in_checked_domains':all(state[domain] is False for domain in domains)}
 if q['action']=='install':
     if target.exists() or target.is_symlink():
         if target.is_symlink() or target.read_bytes()!=raw: raise RuntimeError('root_plist_conflict')
@@ -224,11 +256,7 @@ elif q['action']=='start':
     if r.returncode: raise RuntimeError('bootstrap_failed_reconcile_only')
     print(json.dumps({'started':True}))
 elif q['action'] in ('status','stop'):
-    if q['action']=='stop':
-        for d in domains:
-            subprocess.run(['/var/jb/bin/launchctl','bootout',d+'/'+label],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=15)
-    state={d:registered(d) for d in domains}
-    print(json.dumps({'registered':state,'unregistered_in_checked_domains':not any(state.values())}))
+    print(json.dumps(stop_or_status(q['action'])))
 else: raise RuntimeError('unsupported_root_action')
 '''
 
