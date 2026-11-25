@@ -5,6 +5,8 @@ const {createRuntime} = require('../tools/mvp_offline_runtime');
 const SOURCE = 'MVP_DEMO', TOKEN = 'SYNTHETIC_MVP_TOKEN_NOT_A_REAL_SECRET_ONLY';
 function fixture(compact = false, source = SOURCE) {
   const runtime = createRuntime(); runtime.bootstrap(source, TOKEN);
+  // Ordinary fixtures model mail arriving after an already-adopted audit boundary.
+  runtime.state.properties.LAS_RESULT_AUDIT_SINCE_MS = '1';
   const core = runtime.context.LasMvp, hash = runtime.context.lasHash_;
   const r = {id: source + ':102', time: '2026-11-04T09:01:00+09:00', chat: 'Demo Group', sender: 'Demo User',
     text: 'Synthetic form request', refs: {message_pk: '102', chat_pk: '2', sender_pk: '1'}};
@@ -156,8 +158,35 @@ test('legacy completed results receive no retrospective audit or task rewrite', 
   const book = runtime.state.books[runtime.state.properties.LAS_SHEET];
   const before = JSON.stringify(book.sheets.tasks);
   delete book.sheets.result_import_audit; delete runtime.state.properties.LAS_RESULT_AUDIT_SINCE_MS;
-  mail.internalDate = '1'; runtime.maintenance();
+  let calls = 0; const original = runtime.context.LasMvp.result;
+  runtime.context.LasMvp.result = (...args) => { calls++; return original(...args); };
+  runtime.context.lasPlain_ = () => { throw Error('legacy_body_must_not_be_decoded'); };
+  mail.internalDate = '1'; const report = runtime.maintenance();
+  assert.equal(calls, 0); assert.equal(report.invalid, 0);
   assert.equal(runtime.audits().length, 0); assert.equal(JSON.stringify(book.sheets.tasks), before);
+});
+
+test('pre-boundary unprocessed mail and invalid timestamps never enter result processing', () => {
+  for (const date of ['1', undefined, '', '0', 'NaN', '-1', '1.5', ' 100', '9007199254740992']) {
+    const {runtime, result, add} = auditedFixture(); const mail = add(result);
+    runtime.state.properties.LAS_RESULT_AUDIT_SINCE_MS = '100'; mail.internalDate = date;
+    let calls = 0; runtime.context.LasMvp.result = () => { calls++; throw Error('must_not_process'); };
+    runtime.context.lasPlain_ = () => { throw Error('must_not_decode'); };
+    const report = runtime.maintenance();
+    assert.equal(calls, 0); assert.equal(runtime.tasks().length, 0);
+    assert.equal(runtime.audits().length, 0);
+    assert.equal(report.invalid, date === '1' ? 0 : 1);
+  }
+});
+
+test('mail exactly at adoption boundary is eligible and completed audit bypasses processing', () => {
+  const {runtime, result, add} = auditedFixture(); const mail = add(result);
+  mail.internalDate = runtime.state.properties.LAS_RESULT_AUDIT_SINCE_MS;
+  assert.equal(runtime.maintenance().results, 1);
+  runtime.context.lasPlain_ = () => { throw Error('completed_mail_must_not_be_decoded'); };
+  runtime.context.LasMvp.result = () => { throw Error('completed_mail_must_not_be_reprocessed'); };
+  assert.equal(runtime.maintenance().invalid, 0);
+  assert.equal(runtime.tasks().length, 1); assert.equal(runtime.audits().length, 2);
 });
 
 test('malformed mail and conflicting results are recorded as failures without raw contents', () => {

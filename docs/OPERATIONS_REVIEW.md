@@ -29,7 +29,7 @@
 | 通信断後の再試行 | 通常senderは未ACKのrequestを固定し、試行回数と次回時刻をSQLiteへ保存。60秒から最大3600秒のbackoff。動き続けている通常workerが、通常の周期で同じbodyを再試行する |
 | 受理後の応答消失 | ACKされない同一batch/body/対象IDを保持。模擬receiverでは永続重複排除を確認済み。実配備の受信契約・台帳との対応は別途必要で、exactly-onceを保証しない |
 | 収集・送信中の異常終了 | SQLite取引は行と収集位置を一緒にcommit/rollback。送信はHTTP中にSQLite書込み取引を保持しない。OSプロセス終了でlockは解放され、固定requestが残る |
-| 異常終了後の再開 | 通常送信workerの既存pending/frozenを伴う再開には`--send --resume-pending`が必要。既存worker自身が死んだ後の恒久的な再起動は通常runtimeには未導入。N1の期限付きsupervisorと日常用サービスを混同しない |
+| 異常終了後の再開 | 通常送信workerの既存pending/frozenを伴う再開には`--send --resume-pending`が必要。今回の日常用launchd entryは同じ承認済みprofileの再試行を明示して再開する準備を追加。実機への導入・再起動は未確認。N1の期限付きsupervisorと日常用サービスを混同しない |
 | キューの分割 | 未ACK行を最大500行ずつ取り、送信サイズ上限でprefixを固定。既存600行の合成backlog試験あり。先頭の長文や破損は保留し、カーソルを進めて捨てない |
 | 二重起動と変更検出 | worker/senderのOS lock、source/DB同一性/送信先binding、凍結body/対象行/manifest/hash照合を使う。既存状態を初期化して復旧しない |
 | 停止・スナップショット | disableとrun_id付き停止要求、停止後にworker/sender lockを取った専用SQLite backupを使う。回復元は別の私用保存先で比較し、元のキューを上書きしない |
@@ -46,26 +46,42 @@
 
 ## 再開条件
 
-### collect-only日常サービスの導入準備
+### 日常用collect/sendサービスの導入準備
 
-`tools/prepare_daily_worker.py`を追加した。停止・無効化済みの単一許可トークprofileと、既存管理CLIで版照合して配置したstageのmanifest/runtimeを読み、新しい保存先へ次の3ファイルを生成するだけ。インストール、enable、launchd起動、LINE DBの読み取りや外部送信は実行しない。
+`tools/prepare_daily_worker.py`は、停止・無効化済みの単一許可トークprofileと、既存管理CLIで版照合して配置したstageのmanifest/runtimeを読み、新しい保存先へentry/plist/planを生成する。生成だけではインストール・enable・launchd起動・LINE DB読み取り・外部送信を行わない。
 
-- `daily-collect.py`：無効profileまたは準備後の設定変更は正常終了0とし、再起動ループにしない。runtime全ファイルのhashを照合してから、通常runnerを**send=False固定**で呼ぶ。
-- `daily-collect.plist`：mobile実行、RunAtLoad、`KeepAlive: {SuccessfulExit: false}`、ThrottleInterval60秒。通常停止/disable/設定変更の終了0は再起動対象にせず、未捕捉の異常終了だけをlaunchdの再起動対象にする構成。
-- `plan.json`：collect-only、未配備・未起動、照合版を私用記録する。実設定やtokenを複製しない。
+通常はcollect-only。送信を設定する場合だけ、**`--send --confirm-delivery-binding`**を付ける。この確認flagは、Workが実配備GASの受信先・本人宛転送先と対象profileを照合したというoperatorの記録で、メール配送やGAS受理の実証ではない。独立GAS HTTPS設定、`MVP_IPAD_LIVE`、許可Keep1トークを要求する。
+
+初回の送信準備・起動は旧queue/legacy/cacheのない新しい日常profileだけを受け付け、旧profileや未配送試験文を取り込まない。最初のentryが`daily-activation.json`を排他作成し、以後は同じ設定bindingの承認済み日常stateを再利用する。異常終了後にfresh stateを作り直さず、既存senderの固定request・backoff・ACKを`resume_pending=True`で再開する。設定の変更は正常停止させ、勝手にbindingを更新しない。
 
 ```sh
-python3 prepare_daily_worker.py --profile PRIVATE_DAILY_PROFILE --stage VERIFIED_MANAGED_STAGE --output NEW_PRIVATE_SERVICE_DIRECTORY
+python3 prepare_daily_worker.py --profile PRIVATE_DAILY_PROFILE --stage VERIFIED_MANAGED_STAGE --output /var/mobile/las-daily-send-service --send --confirm-delivery-binding
 ```
 
-出力先・profile・stage・LINE DBディレクトリの重なり、DBポインター不一致、稼働中marker、旧版runtime、既存出力先を拒否する。既存N1や旧profileへ日常サービスを起動しない。新しい日常用profileの準備と許可範囲確認後に使う。
+送信モードの出力は`daily-send.py`、`daily-send.plist`、`plan.json`、`daily-send-control.py`、`daily-root-bootstrap.py`。デフォルトcollect-onlyは従来の3ファイル。runtime全ファイルのhash、DBポインター、profile/stage/LINE DB/output境界を照合し、既存出力を上書きしない。生成時は既存の`manage_ipad.py`を同じtoolsディレクトリに置く。生成後のentry/controller/bootstrapは自己完結している。
 
-標準出力/標準エラーの無制限ファイル保存をplistへ追加していない。通常runnerの最新`worker-status.json`1件が収集段階・例外クラスを保持する。entryで起動前に失敗した場合は例外クラスだけをstderrと利用可能なOS syslogへ出す。OSログ機構の実機可用性・保存期間は未確認で、ロック状態や停止の証明にはしない。
+plistはmobile実行、RunAtLoad、`KeepAlive: {SuccessfulExit: false}`、ThrottleInterval60秒。無効状態での起動・通常協調停止・disable・設定変更は終了0なので再起動ループにしない。未捕捉の異常終了だけをlaunchdの再起動対象にする構成。通常停止はCLIのrun_id付き停止要求を指す。SIGTERM単独は異常終了扱いになり得るため、終了要求に加えて専用サービスの登録解除を確認する。
 
-ここでの通常停止はCLIのrun_id付き停止要求による協調停止を指す。単独のSIGTERM/killと登録解除は別で、異常終了扱いのsignalだけを送れば再起動対象になり得る。実導入時は停止要求の正常終了と、専用ラベルの登録解除を両方確認する。
+### 日常用の固定root操作経路
 
-変更直結の合成7件で生成entryを実行し、無効状態でruntimeをimportせず0、通常runnerの停止/disable/設定変更で0、未捕捉異常で非0となること、送信関数が呼ばれないこと、版・境界・上書き拒否を確認した。実際のlaunchdによる再起動は未確認。既存の固定root bridgeはN1専用であり、この日常用ラベルの登録を許すものではない。日常サービスのroot登録・解除経路は未適用・未整備、**送信を伴う日常用サービスも未完成**として残す。
+N1のroot bridgeは変更していない。送信日常用には固定ラベル`com.sat0t.line-auto-sync.daily-send`と、固定root helper `/var/root/las-daily-send-control.py`を別に生成する。初回だけ本人が生成済みbootstrapへsudo認証を行う。
 
-旧profile/旧キューへ通常workerを起動する手順は今回の試験案に含めない。新しい日常用profileを実際に許可範囲と照合した後、コード・状態schema・送信先・受信側dedupeを確認し、監視サービスの起動/停止/異常終了後の再開を実測する。接続断や状態表示だけを理由にstartを繰り返さず、既存runの状態・凍結request・台帳・メールを照合する。
+```sh
+sudo /var/jb/usr/bin/python3 /var/mobile/las-daily-send-service/daily-root-bootstrap.py
+```
 
-長時間運用、ディスク逼迫、実機のプロセス強制終了からの自動復帰、実通信断復旧は未検証として残す。今回の表示修正と合成試験でMVP完成率を増やさない。
+このbootstrapは既存の検証済みROOT_SETUPを固定helper名へ限定して再利用し、root所有600のhelperと、その**正確なPython/helperコマンドだけ**のsudoers ruleを新規作成する。visudo・既存includedir・所有者・コードhashを検証し、N1ルールや既存ファイルを上書きしない。以後のWorkからのroot呼出しはstdinの`{"action":"probe|install|start|status|stop"}`だけ。任意のsource、command、labelやroot Pythonコードを受け付けない。
+
+固定controllerは生成時のmobile entry/plistをhashでpinし、root側の固定plistへ登録する。`install`と`start`は別操作。`start`命令の成功を配送成功とはしない。状態不明でstartを繰り返さず、同じ専用ラベルのstatusと私用stateを照合する。stop/statusは既存の独立した両ドメイン処理を再利用し、一方のtimeoutでも残りを確認する。unknownを未登録と見なさず、両方が明示的に未登録の場合だけ解除完了。stop40秒/status10秒の構成予算を維持する。
+
+### 状態・ログ容量と停止
+
+データを削除せず、収集前後にqueue/cache本体・WAL/SHM/journal・legacy状態のファイル合計とディスク空きを観測する。既定はstate256MiB、空き64MiBの境界で正常停止する設定。`--max-state-bytes`と`--min-free-bytes`で準備時に指定できる。容量停止でACKやキューを初期化せず、`daily-health.json`の最新1件へ`capacity_paused`と件数ではなくbyte数を記録する。これは**各収集呼出しの前後の閾値**であり、1回の収集中の増加やOS全体の空き容量に対する絶対hard limitではない。膨張を検出したら続行せず、保存・容量方針を確認する。
+
+標準出力/標準エラーの無制限ファイルをplistへ追加していない。最新`worker-status.json`と`daily-health.json`だけを原子的に置換する。entryの起動失敗は例外クラスだけをstderrと利用可能なOS syslogへ出す。OSログの実機可用性・保存期間は未確認。既存の証拠ログは削除しない。
+
+### 今回の検証と未確認
+
+変更直結の合成15件が成功。生成entryを実行して無効起動・協調停止・disable・設定変更で0、未捕捉異常で非0となることを確認した。送信opt-in無しの動作維持、初回旧queue拒否、承認済み日常stateの保持、異常終了した同じentryの再実行での再開、容量時に送信せず全データを保持する停止を確認。固定root controllerのmobile版hash検査、独立した解除処理、bootstrapのコードhashと厳密なsudo commandも合成確認した。通常sender自体の通信断・凍結request・同一body再試行の新規状態表示テスト3件と、既存の合成coverageを併用する。
+
+実iPadへの日常サービス配備・root認証・launchd再起動・実通信断復旧は未実施。実GASとの同一対象照合、LINEのロック中同期、長時間運用、容量逼迫からの実復帰も未確認。旧profile/旧キューへ送信workerを起動する手順は含めない。新しい日常用profileの範囲・送信先・受信dedupeを実際に確認してから導入し、設定作成やCIだけで完成率を増やさない。

@@ -158,7 +158,12 @@ function lasImportResult_(entry, cfg, store, audit) {
   var m = Gmail.Users.Messages.get('me', entry.id, {format: 'full'});
   if (!lasOwnMail_(m, cfg) || !(lasHeaders_(m, 'subject')[0] || '').startsWith('[LINE-TASK-RESULT] ' + cfg.source + ' ')) return null;
   var internalDate = String(m.internalDate || '');
-  var tracked = /^[0-9]+$/.test(internalDate) && Number(internalDate) >= audit.since;
+  // A missing/unsafe timestamp cannot establish prospective eligibility.
+  // Exclude historical mail before decoding or calling result(), not only from audit.
+  if (!/^[1-9][0-9]*$/.test(internalDate) || !Number.isSafeInteger(Number(internalDate)))
+    throw new Error('invalid_result_internal_date');
+  if (Number(internalDate) < audit.since) return null;
+  var tracked = true;
   if (tracked && audit.seen(m.id)) return {duplicate: true, saved: 0};
   var record = {gmail_message_id: m.id, gmail_internal_date_ms: internalDate || null,
     import_started_at: new Date().toISOString(), result_hash: null, task_ids: [], saved: 0};

@@ -1,12 +1,20 @@
 # 独立GASの実配備確認・監査適用・復旧
 
-## 現在の正規アクセスで確認できた範囲
+## 2026-11-25の実適用結果
+
+以下の旧アクセス制約は、本人が限定再開を許可した既存ChromeのGAS編集画面から解消した。実ScriptPropertiesとSheet/folder/本人宛を照合し、既存のWeb配備version 2を同じendpoint/実行者/アクセス設定のままversion 3へ更新した。別のversion 1配備は保持。端末の実設定endpointとの一致は未確認。
+
+変更前後の実HEADは、正規Drive connectorの`application/vnd.google-apps.script+json` exportで私用退避し、変更後は用意したコードと完全一致。既存manifest・OAuth scopesは不変、本人所有のHEAD/5分間隔保守trigger1つも不変更。Webのrollback対象は保持したimmutable version 2、trigger用のrollbackは別に退避した旧HEAD。両者の全ソース同一性を断定していない。Drive revisions APIはscriptに非対応だったため、同じ呼出しを繰り返さない。
+
+監査開始以前のメールは保存処理前で除外する修正も含め適用。古い対象の再解析・再送・遡及監査は行わない。新規cloud-synthetic1件は実GASのhelper→既存doPost→本人Gmailで入力内容まで一致確認済み。helper起動は手動の入力作成であり、HTTP受信やChatGPTの自然起動の証拠にはしない。自然な解析と将来監査/保存の確認は別段階。実ID・URL・設定・hash・原ログは私用に保持する。
+
+## 実アクセス確立前の記録
 
 個人用Drive/Sheets/Gmailの読取り経路はある。既存候補台帳に、過去のbatch保存ファイルと候補フォルダの対応があることを新しいmetadata経路で確認した。ただし、今のGAS配備project/version/endpoint、ScriptPropertiesのowner/sheet/folderとの直接のbindingは未取得。名前や過去の保存関係から現在の配備先と断定しない。旧2件の結果メール・タスク・解析を再処理していない。
 
 新しいDrive追加metadata・セルのリンク/note・台帳のfield名・GAS公式通知への限定検索から、実配備の識別情報を取得できなかった。同じ検索は繰り返さない。現在のツールにはApps Script APIを直接使う認証済みconnectorがなく、ローカルのclasp設定/Google ADC認証設定も確認範囲にない。ブラウザの認証情報を取り出したり、Driveの接続資格情報を別用途へ転用したりしない。PCのGUIは禁止されたまま。
 
-## 次に必要な正規経路
+## 確立前の比較と確認基準（参照）
 
 1. 実物のscript IDとApps Script APIの既存の認証済みアクセス、または本人が許可した認証済みエディタ経路を確立する。これはiPadとは独立したアクセス条件で、追加の有料APIや新しいAIキーは不要。
 2. [deployments.list](https://developers.google.com/apps-script/api/reference/rest/v1/projects.deployments/list)からdeployment IDとversionNumberを取得し、そのversionNumberの[getContent](https://developers.google.com/apps-script/api/reference/rest/v1/projects/getContent)を読む。HEADだけを読んで実配備とみなさない。取得結果と現行deployment metadataを私用保存し、比較できる形で退避する。

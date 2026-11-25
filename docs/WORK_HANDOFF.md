@@ -1,3 +1,21 @@
+# Cloudの実アクセス確立・修正版適用・新しい架空1件を投入 — 2026-11-25
+
+**未完成・8/10工程を維持。** 今回はコード準備だけでなく、本人が再開を許可した既存ChromeのGAS・ChatGPT予定の2画面から実環境へ進んだ。端末操作は依頼せず、iPadには接続・起動していない。同じ無送信DB観測、旧対象2件の再処理・再送・同じ履歴検索は行っていない。途中の画面操作中断後は停止し、本人の再開許可後に再開した。
+
+独立GASの実プロジェクト、ScriptPropertiesのsource/本人宛/Sheet/保存folderと既存候補の一致を確認した。実在する既存Web配備は2つ。更新対象だったversion 2の配備を同じURL・実行者・アクセス設定のままversion 3へ更新し、別のversion 1配備は保持した。端末設定の実endpointとの一致は未確認で、iPad側更新済みとは扱わない。HEADの元コードとmanifestは正規Drive接続のscript+json exportから私用退避。更新後もexportして、用意したコードとの完全一致・manifest不変を確認した。Web復旧は残したimmutable version 2、保守triggerのHEAD復旧は別に退避した元HEADを使う。旧Web版と元HEADの全コード同一性は未断定。既存の本人所有・HEAD・5分間隔の保守triggerは1つで、変更/追加していない。秘密情報・配備URL・実ID/hash・生の設定/ログは私用。
+
+準備版の監査は旧メールの監査だけを省き、結果処理自体へ通す欠陥があったため修正。監査開始境界より古いメールは本文復元・結果保存の前に除外し、不正な内部時刻も処理しない。修正前の回帰2件が失敗し、修正後のGAS合成18件は成功。将来分の重複排除と部分保存/終了監査失敗からの再開を維持した。このguardと前回の厳密本文照合・flowed修正・将来監査を実HEADへ適用済み。適用前の台帳確認では既存batchは全てaccepted/sent、旧pendingの転送候補は0件だった。
+
+既存「要対応メール通知」の実物と同じタスク/会話を特定し、元の通知規則と定期設定を保持して、新しいcloud-synthetic由来1件に限る例外を末尾追加。保存後の読み戻しが完全一致し、元ルールのprefix不変を確認した。「今すぐ実行」や手動解析は使っていない。通常Chatの会話読取り経路も確認できたが、返却された会話turn/message IDには自然起動理由やメール送信tool記録がなく、ChatGPT実行IDへ読み替えない。
+
+新しい入力は実LINE由来と偽らず、cloud-syntheticのchat/sender・LINE参照nullの1件とし、私用planへ対象/本人宛/1回上限・再試行0/不明時再起動禁止を固定。実GASの1回限りhelperから既存doPostへ渡し、受理・MailApp送信状態を確認した。これはHTTP入口試験でも自然解析でもない。その後、本人宛Gmailの実メッセージ1通を取得し、flowed復元本文・source/対象/batchの完全一致と内部時刻を照合した。入力配送は実環境で成立。次は同じ対象の自然なChatGPT結果作成と、監査/タスク保存を確認する。旧対象への監査補完や、成否不明の新入力再送はしない。
+
+日常運用の未達だった送信mode・異常終了後の同じ状態からの再開・固定daily専用サービスの登録/停止経路を実装。既存collector/sender/queue/backoffを再利用し、送信は明示opt-inと実配備/本人宛の事前照合が前提。初回は旧queueを拒否し、新しいdaily profileをbaselineから開始。以後は同bindingの承認済みdaily状態を保持してresumeする。固定root controller/bootstrapは既存の両domainを独立処理するbounded stop/statusを再利用し、N1 bridgeは不変更。収集前後の容量閾値でデータを消さず正常停止し、最新health/statusだけを保存する。変更直結15件は成功。実launchdへの適用・異常再起動・実通信断復旧・長期容量はiPad接続後にしか確認できない。容量閾値は1collect前後の確認であり、絶対hard capではない。
+
+今回のコード変更に必要なCIは結果確定後に追記する。GAS入力配送だけで自然解析・ロック中配送・日常運転完成を判定しない。iPadは初回接続・鍵登録・ホスト鍵照合・sudoが未実施で、既存の鍵/転送セット/本人6コマンド/旧キットは保持。PR未マージ・追加課金なし。
+
+---
+
 # iPadなしのCloud・運用修正と次の実機準備 — 2026-11-25
 
 最終コード34f8e9461b9c99749318a11df03feefa76d88410の[CI run 45569252637](https://github.com/Sat0T/line-auto-sync/actions/runs/45569252637)は全6ジョブ成功。Python196件をWindows/Linux・3.9/3.12で確認（WindowsはPOSIX専用8件skip、LinuxはWindows専用1件skip）。GAS合成16件、合成pipeline、私用deb生成/展開検査、公開履歴監査も成功。今回の変更に必要なCIとして実行し、調査目的だけの旧179件再実行は行わなかった。以後の変更は本結果の文書追記のみ。候補Cloud3ファイルと未来期限の新試験のtext/plan/kit/runtime一致をローカルで再確認。正規認証の関連環境変数にも利用可能な既存設定は無かった。実GAS/自然ChatGPT/実機の成功証拠としては数えない。

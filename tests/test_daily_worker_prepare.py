@@ -1,5 +1,7 @@
 """Generated collect-only entry/plist checks without launchd, LINE, or network."""
 import hashlib
+import ast
+import base64
 import importlib.util
 import json
 from pathlib import Path
@@ -8,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('daily', ROOT / 'tools/prepare_daily_worker.py')
@@ -137,6 +140,126 @@ def collect():
             self.output = output
             with self.assertRaisesRegex(ValueError, 'separate_profile'):self.prepare()
             self.assertFalse(output.exists())
+
+    def sending(self, **options):
+        self.config['transport']['endpoint']='https://script.google.com/macros/s/SYNTHETIC/exec'
+        self.write_config()
+        return daily.prepare(self.profile,self.stage,self.output,send=True,**options)
+
+    def execute_send(self):
+        return subprocess.run([sys.executable,str(self.output/'daily-send.py')],
+                              stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=10)
+
+    def test_send_is_explicit_opt_in_and_cannot_adopt_old_queue_on_first_activation(self):
+        with self.assertRaisesRegex(ValueError,'confirm_actual_receiver'):
+            self.sending()
+        old=self.profile/'state/normal-delivery.sqlite';old.write_bytes(b'OLD_QUEUE_PRESERVE')
+        with self.assertRaisesRegex(ValueError,'fresh_queue'):
+            self.sending(confirm_delivery_binding=True)
+        self.assertEqual(old.read_bytes(),b'OLD_QUEUE_PRESERVE');self.assertFalse(self.output.exists())
+
+    def test_already_approved_daily_state_can_be_prepared_without_resetting_queue(self):
+        self.config['transport']['endpoint']='https://script.google.com/macros/s/SYNTHETIC/exec';self.write_config()
+        marker={'mode':'send','profile_binding':daily.normalized_binding(self.config)}
+        (self.profile/'state/daily-activation.json').write_text(json.dumps(marker))
+        old=self.profile/'state/normal-delivery.sqlite';old.write_bytes(b'APPROVED_QUEUE_PRESERVE')
+        result=self.sending(confirm_delivery_binding=True)
+        self.assertTrue(result['sending_configured']);self.assertFalse(result['external_send'])
+        self.assertEqual(old.read_bytes(),b'APPROVED_QUEUE_PRESERVE')
+        plan=json.loads((self.output/'plan.json').read_text())
+        self.assertFalse(plan['actual_delivery_verified']);self.assertTrue(plan['operator_confirmed_delivery_binding'])
+        spec=plistlib.loads((self.output/'daily-send.plist').read_bytes())
+        self.assertEqual(spec['Label'],daily.SEND_LABEL);self.assertEqual(spec['UserName'],'mobile')
+
+    def test_send_entry_recovers_same_approved_profile_after_process_crash(self):
+        self.config['synthetic_action']='send_cycle';self.write_config()
+        (self.runtime/'sender.py').write_text('''from contextlib import contextmanager
+import json
+from runtime_paths import STATE_DIR
+@contextmanager
+def sender_lock(*args):yield
+def send_once(*args):
+    import runner
+    path=STATE_DIR/'synthetic-send-counter.json'
+    count=json.loads(path.read_text()) if path.exists() else 0
+    count+=1;path.write_text(json.dumps(count))
+    if count==1:raise SystemExit(23)
+    runner.request_stop()
+    return {'sent':True}
+''')
+        self.refresh_manifest();self.sending(confirm_delivery_binding=True)
+        self.config['enabled']=True;self.write_config()
+        first=self.execute_send();self.assertEqual(first.returncode,23,first.stderr)
+        marker=(self.profile/'state/daily-activation.json').read_bytes()
+        second=self.execute_send();self.assertEqual(second.returncode,0,second.stderr)
+        self.assertEqual((self.profile/'state/daily-activation.json').read_bytes(),marker)
+        self.assertEqual(json.loads((self.profile/'state/synthetic-send-counter.json').read_text()),2)
+        self.assertEqual(json.loads((self.profile/'state/worker-status.json').read_text())['last_result'],'application_accepted')
+
+    def test_old_queue_appearing_after_prepare_cannot_be_sent_on_first_start(self):
+        self.sending(confirm_delivery_binding=True)
+        old=self.profile/'state/normal-delivery.sqlite';old.write_bytes(b'OLD_QUEUE_PRESERVE')
+        self.config['enabled']=True;self.write_config()
+        result=self.execute_send();self.assertNotEqual(result.returncode,0)
+        self.assertEqual(old.read_bytes(),b'OLD_QUEUE_PRESERVE')
+        self.assertFalse((self.profile/'state/daily-activation.json').exists())
+        self.assertFalse((self.profile/'state/worker-status.json').exists())
+
+    def test_capacity_pause_keeps_all_data_and_does_not_attempt_send(self):
+        self.sending(confirm_delivery_binding=True,max_state_bytes=1024*1024)
+        self.config['enabled']=True;self.write_config()
+        marker={'mode':'send','profile_binding':daily.normalized_binding(self.config)}
+        (self.profile/'state/daily-activation.json').write_text(json.dumps(marker))
+        data=self.profile/'state/named-cache.sqlite';data.write_bytes(b'x'*(2*1024*1024))
+        before=hashlib.sha256(data.read_bytes()).hexdigest()
+        result=self.execute_send();self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(hashlib.sha256(data.read_bytes()).hexdigest(),before)
+        health=self.profile/'state/daily-health.json'
+        self.assertEqual(json.loads(health.read_text())['phase'],'capacity_paused')
+        self.assertLess(health.stat().st_size,1024)
+        self.assertEqual(json.loads((self.profile/'state/worker-status.json').read_text())['state'],'stopped')
+        self.assertFalse(any(p.name.startswith('.worker-') for p in (self.profile/'state').iterdir()))
+
+    def root_namespace(self):
+        self.sending(confirm_delivery_binding=True)
+        scope={'__name__':'synthetic_daily_root'}
+        exec(compile((self.output/'daily-send-control.py').read_text(),'<synthetic-daily-root>','exec'),scope)
+        return scope
+
+    def test_daily_root_controller_pins_one_mobile_job_and_detects_changed_source(self):
+        scope=self.root_namespace();raw=scope['verified_source']()
+        self.assertEqual(plistlib.loads(raw)['Label'],daily.SEND_LABEL)
+        self.assertEqual(scope['EXPECTED_SPEC']['UserName'],'mobile')
+        (self.output/'daily-send.py').write_text('# changed after review')
+        with self.assertRaisesRegex(RuntimeError,'source_version'):scope['verified_source']()
+
+    def test_daily_root_cleanup_reuses_independent_domain_handling(self):
+        scope=self.root_namespace();calls=[];clock=[0.0]
+        def run(argv,**kwargs):
+            calls.append((argv[1],argv[2]))
+            if argv[1]=='bootout' and argv[2].startswith('system/'):
+                clock[0]+=kwargs['timeout'];raise subprocess.TimeoutExpired(argv,kwargs['timeout'])
+            if argv[1]=='print':return subprocess.CompletedProcess(argv,1,b'',b'Could not find service')
+            return subprocess.CompletedProcess(argv,0)
+        scope['subprocess']=SimpleNamespace(run=run,TimeoutExpired=subprocess.TimeoutExpired,
+                                            PIPE=subprocess.PIPE,DEVNULL=subprocess.DEVNULL)
+        scope['time']=SimpleNamespace(monotonic=lambda:clock[0])
+        result=scope['stop_or_status']('stop')
+        self.assertTrue(result['unregistered_in_checked_domains'])
+        self.assertEqual([x[0] for x in calls],['bootout','bootout','print','print'])
+        self.assertTrue(all(d.endswith('/'+daily.SEND_LABEL) for _,d in calls))
+
+    def test_daily_bootstrap_is_self_contained_and_exact_command_scoped(self):
+        self.sending(confirm_delivery_binding=True)
+        tree=ast.parse((self.output/'daily-root-bootstrap.py').read_text())
+        constants={n.targets[0].id:ast.literal_eval(n.value) for n in tree.body[:2]}
+        raw=base64.b64decode(constants['BRIDGE_BASE64'])
+        self.assertEqual(hashlib.sha256(raw).hexdigest(),constants['BRIDGE_SHA256'])
+        self.assertEqual(raw,(self.output/'daily-send-control.py').read_bytes())
+        text=(self.output/'daily-root-bootstrap.py').read_text()
+        self.assertIn('NOPASSWD: /var/jb/usr/bin/python3 /var/root/las-daily-send-control.py',text)
+        self.assertNotIn('las-managed-control',text)
+        self.assertNotIn('NOPASSWD: ALL',text)
 
 
 if __name__ == '__main__':unittest.main()
